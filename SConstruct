@@ -288,6 +288,8 @@ add_option( "use-system-stemmer", "use system version of stemmer", 0, True )
 
 add_option( "use-system-yaml", "use system version of yaml", 0, True )
 
+add_option( "use-system-lmdb", "use system version of lmdb", 0, True )
+
 add_option( "use-system-all" , "use all system libraries", 0 , True )
 
 add_option( "use-cpu-profiler",

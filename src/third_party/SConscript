@@ -92,3 +92,13 @@ else:
     env.SConscript('yaml-cpp-0.5.1/SConscript')
     env.Library("shim_yaml", ['shim_yaml.cpp'],
                 LIBDEPS=['yaml-cpp-0.5.1/yaml'])
+
+if use_system_version_of_library("lmdb"):
+    env.Library("shim_lmdb", ['shim_lmdb.cpp'],
+                SYSLIBDEPS=[
+                    env['LIBDEPS_LMDB_SYSLIBDEP']
+                ] )
+else:
+    env.Append(CPPPATH='$BUILD_DIR/third_party/lmdb')
+    env.SConscript('lmdb/SConscript')
+    env.Library('shim_lmdb', ['shim_lmdb.cpp'], LIBDEPS=['lmdb/lmdb'])
