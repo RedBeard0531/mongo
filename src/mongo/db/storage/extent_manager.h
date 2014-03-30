@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -38,10 +39,37 @@
 #include "mongo/base/status.h"
 #include "mongo/base/string_data.h"
 #include "mongo/db/diskloc.h"
+#include "mongo/util/mdb.h"
 
 namespace mongo {
 
     class DataFile;
+
+    class MDBLoc {
+    public:
+        MDBLoc(uint32_t collection, uint32_t id) : collection(collection), id(id) {}
+        explicit MDBLoc(const DiskLoc& loc) : collection(loc.a() - 1000), id(loc.getOfs()) {
+            invariant(is(loc));
+        }
+        explicit operator DiskLoc() const { return DiskLoc(collection + 1000, id); }
+
+        static bool is(const DiskLoc& loc) { return loc.a() >= 1000; }
+
+        uint32_t collection;
+        uint32_t id;
+
+    private:
+    };
+
+    struct MDBStuff {
+        static constexpr int maxDBs = 64;
+        MDBStuff() {
+            mdb::check(mdb_env_set_maxdbs(env, maxDBs));
+            dbs.resize(maxDBs);
+        }
+        mdb::Env env;
+        std::vector<mdb::DB> dbs;
+    };
 
     /**
      * ExtentManager basics
@@ -67,7 +95,7 @@ namespace mongo {
          *        are a peer to the .ns file, without any layering
          */
         ExtentManager( const StringData& dbname, const StringData& path,
-                       bool directoryPerDB );
+                       bool directoryPerDB, MDBStuff& mdb);
 
         ~ExtentManager();
 
@@ -186,6 +214,7 @@ namespace mongo {
         //   to others and we are in the dbholder lock then.
         std::vector<DataFile*> _files;
 
+        MDBStuff& _mdb;
     };
 
 }

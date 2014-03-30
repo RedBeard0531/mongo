@@ -249,8 +249,11 @@ namespace mongo {
         _ns( ns ), 
         _db(db)
     {
+        linkTxn();
         verify( db == 0 || db->isOk() );
         _client->_context = this;
+        if (db)
+            beginTxn();
     }
 
     Client::Context::Context(const string& ns, const std::string& path, bool doVersion) :
@@ -330,6 +333,24 @@ namespace mongo {
         }
         }
     }
+    
+    void Client::Context::linkTxn() {
+        if (_oldContext && _oldContext->_db == _db) {
+            _txn = _oldContext->_txn;
+        } else {
+            _txn = &_txnHolder;
+        }
+    }
+
+    void Client::Context::beginTxn() {
+        invariant(_db);
+        if (!getTxn()) {
+            if (Lock::somethingWriteLocked())
+                *_txn = mdb::Txn::Write(_db->getMDB());
+            else
+                *_txn = mdb::Txn::Read(_db->getMDB());
+        }
+    }
 
     // invoked from ReadContext
     Client::Context::Context(const string& path, const string& ns, Database *db) :
@@ -345,6 +366,8 @@ namespace mongo {
         checkNotStale();
         _client->_context = this;
         _client->_curOp->enter( this );
+        linkTxn();
+        beginTxn();
     }
        
     void Client::Context::_finishInit() {
@@ -360,6 +383,9 @@ namespace mongo {
         massert( 16107 , str::stream() << "Don't have a lock on: " << _ns , Lock::atLeastReadLocked( _ns ) );
         _client->_context = this;
         _client->_curOp->enter( this );
+
+        linkTxn();
+        beginTxn();
     }
     
     Client::Context::~Context() {
@@ -367,6 +393,9 @@ namespace mongo {
         _client->_curOp->recordGlobalTime( _timer.micros() );
         _client->_curOp->leave( this );
         _client->_context = _oldContext; // note: _oldContext may be null
+
+        if (_txnHolder)
+            _txnHolder.commit(); // TODO default should eventually be abort()
     }
 
     bool Client::Context::inDB( const string& db , const string& path ) const {

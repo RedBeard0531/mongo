@@ -197,7 +197,7 @@ namespace mongo {
     Database::Database(const char *nm, bool& newDb, const string& path )
         : _name(nm), _path(path),
           _namespaceIndex( _path, _name ),
-          _extentManager(_name, _path, storageGlobalParams.directoryperdb),
+          _extentManager(_name, _path, storageGlobalParams.directoryperdb, _mdb),
           _profileName(_name + ".system.profile"),
           _namespacesName(_name + ".system.namespaces"),
           _indexesName(_name + ".system.indexes"),
@@ -230,6 +230,11 @@ namespace mongo {
                     }
                     _namespaceIndex.kill_ns( oldFreeList );
                 }
+            }
+            else {
+                // can't open lazily :(
+                _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
+                              MDB_NOTLS | MDB_NOSUBDIR | !MDB_WRITEMAP);
             }
             _magic = 781231;
         }
@@ -298,6 +303,32 @@ namespace mongo {
     //        repair purposes yet we do not.
     void Database::openAllFiles() {
         verify(this);
+
+        _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
+                      MDB_NOTLS | MDB_NOSUBDIR | !MDB_WRITEMAP);
+
+        auto txn = mdb::Txn::Write(getMDB());
+        auto snsId = _namespaceIndex.details(_namespacesName)->mdbDBNum();
+        auto& sns = _mdb.dbs[snsId];
+        sns.open(txn, BSONObjBuilder::numStr(snsId).c_str(),
+                 !MDB_CREATE | MDB_INTEGERKEY);
+
+        {
+            auto cursor = mdb::Cursor(txn, sns);
+            while (auto kv = cursor.next()) {
+                auto obj = kv->second.as<BSONObj>();
+                auto name = obj["name"].String();
+                if (NamespaceString::normal(name)) {
+                    auto nsd = _namespaceIndex.details(name);
+                    auto dbNum = nsd->mdbDBNum();
+                    _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
+                                         !MDB_CREATE | MDB_INTEGERKEY);
+                }
+                //TODO indexes
+            }
+        }
+        txn.commit();
+
         Status s = _extentManager.init();
         if ( !s.isOK() ) {
             msgasserted( 16966, str::stream() << "_extentManager.init failed: " << s.toString() );
@@ -685,6 +716,24 @@ namespace mongo {
         audit::logCreateCollection( currentClient.get(), ns );
 
         _namespaceIndex.add_ns( ns, DiskLoc(), options.capped );
+
+        const bool useMDB = NamespaceString::normal(ns);
+        if (useMDB) {
+            int dbNum = 0;
+            for (; dbNum < MDBStuff::maxDBs; dbNum++) {
+                if (!_mdb.dbs[dbNum]) break;
+            }
+            invariant(dbNum < MDBStuff::maxDBs);
+
+            auto& txn = cc().getContext()->getTxn();
+            _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
+                                 MDB_CREATE | MDB_INTEGERKEY);
+
+            _namespaceIndex.details(ns)->mdbDBNum(dbNum);
+        }
+
+
+
         BSONObj optionsAsBSON = options.toBSON();
         _addNamespaceToCatalog( ns, &optionsAsBSON );
 
@@ -706,7 +755,10 @@ namespace mongo {
         if ( options.cappedMaxDocs > 0 )
             nsd->setMaxCappedDocs( options.cappedMaxDocs );
 
-        if ( allocateDefaultSpace ) {
+        if (useMDB) {
+            // NOTHING
+
+        } else if ( allocateDefaultSpace ) {
             if ( options.initialNumExtents > 0 ) {
                 int size = _massageExtentSize( options.cappedSize );
                 for ( int i = 0; i < options.initialNumExtents; i++ ) {

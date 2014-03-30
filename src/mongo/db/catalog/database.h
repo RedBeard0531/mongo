@@ -192,6 +192,10 @@ namespace mongo {
         static Status validateDBName( const StringData& dbname );
 
         const string& getSystemIndexesName() const { return _indexesName; }
+
+        mdb::Env& getMDB() { return _mdb.env; }
+        mdb::DB& getMDBNum(uint32_t num) { return _mdb.dbs[num]; }
+
     private:
 
         void _clearCollectionCache( const StringData& fullns );
@@ -243,6 +247,8 @@ namespace mongo {
         typedef StringMap< Collection* > CollectionMap;
         CollectionMap _collections;
         mutex _collectionLock;
+
+        MDBStuff _mdb;
 
         friend class Collection;
         friend class NamespaceDetails;

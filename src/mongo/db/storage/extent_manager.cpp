@@ -45,10 +45,12 @@ namespace mongo {
 
     ExtentManager::ExtentManager( const StringData& dbname,
                                   const StringData& path,
-                                  bool directoryPerDB )
+                                  bool directoryPerDB,
+                                  MDBStuff& mdb)
         : _dbname( dbname.toString() ),
           _path( path.toString() ),
-          _directoryPerDB( directoryPerDB ) {
+          _directoryPerDB( directoryPerDB ),
+          _mdb(mdb) {
     }
 
     ExtentManager::~ExtentManager() {
@@ -196,6 +198,14 @@ namespace mongo {
 
     Record* ExtentManager::recordFor( const DiskLoc& loc ) const {
         loc.assertOk();
+
+        if (MDBLoc::is(loc)) {
+            auto ml = MDBLoc(loc);
+            if (const auto& db = _mdb.dbs[ml.collection]) {
+                return db.get(cc().getContext()->getTxn(), ml.id).as<Record*>();
+            }
+        }
+
         const DataFile* df = _getOpenFile( loc.a() );
 
         int ofs = loc.getOfs();

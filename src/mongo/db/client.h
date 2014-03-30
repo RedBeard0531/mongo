@@ -46,6 +46,7 @@
 #include "mongo/db/storage_options.h"
 #include "mongo/util/concurrency/rwlock.h"
 #include "mongo/util/concurrency/threadlocal.h"
+#include "mongo/util/mdb.h"
 #include "mongo/util/paths.h"
 
 namespace mongo {
@@ -202,16 +203,25 @@ namespace mongo {
 
             void _clear() { // this is sort of an "early destruct" indication, _ns can never be uncleared
                 const_cast<string&>(_ns).clear();
+                getTxn().commit();
                 _db = 0;
             }
 
             /** call before unlocking, so clear any non-thread safe state
              *  _db gets restored on the relock
              */
-            void unlocked() { _db = 0; }
+            void unlocked() { _db = 0;  getTxn().commit();}
 
             /** call after going back into the lock, will re-establish non-thread safe stuff */
             void relocked() { _finishInit(); }
+
+            mdb::Txn& getTxn() { return *_txn; }
+
+            // Called from constructor
+            void linkTxn();
+
+            // Called from constructor or _finishInit
+            void beginTxn();
 
         private:
             friend class CurOp;
@@ -226,6 +236,9 @@ namespace mongo {
             bool _doVersion;
             const string _ns;
             Database * _db;
+
+            mdb::Txn _txnHolder;
+            mdb::Txn* _txn; // points to _txn or _txn of one of the _oldContexts
             
             Timer _timer;
         }; // class Client::Context

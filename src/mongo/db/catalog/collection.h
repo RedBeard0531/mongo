@@ -41,6 +41,7 @@
 #include "mongo/db/structure/record_store.h"
 #include "mongo/db/catalog/collection_info_cache.h"
 #include "mongo/platform/cstdint.h"
+#include "mongo/util/mdb.h"
 
 namespace mongo {
 
@@ -214,6 +215,14 @@ namespace mongo {
             return static_cast<int>( dataSize() / n );
         }
 
+        void setMDB(mdb::DB* mdb, uint32_t dbNum) {
+            _mdb = mdb;
+            _dbNum = dbNum;
+        }
+
+        mdb::DB* getMDB() const { return _mdb; }
+        uint32_t getMDBNum() const { return _dbNum; }
+
     private:
         /**
          * same semantics as insertDocument, but doesn't do:
@@ -246,6 +255,10 @@ namespace mongo {
         // use it keep state.  This seems valid as const correctness of Collection
         // should be about the data.
         mutable CollectionCursorCache _cursorCache;
+
+        
+        mdb::DB* _mdb;
+        uint32_t _dbNum;
 
         friend class Database;
         friend class FlatIterator;

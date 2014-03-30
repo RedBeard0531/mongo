@@ -39,6 +39,7 @@
 #include "mongo/db/catalog/index_create.h"
 #include "mongo/db/index/index_access_method.h"
 #include "mongo/db/structure/catalog/namespace_details.h"
+#include "mongo/db/structure/record_store_mdb.h"
 #include "mongo/db/structure/record_store_v1_capped.h"
 #include "mongo/db/structure/record_store_v1_simple.h"
 #include "mongo/db/repl/rs.h"
@@ -77,23 +78,29 @@ namespace mongo {
         : _ns( fullNS ),
           _infoCache( this ),
           _indexCatalog( this, details ),
-          _cursorCache( fullNS ) {
+          _cursorCache( fullNS ),
+          _mdb(nullptr) {
         _details = details;
         _database = database;
 
-        if ( details->isCapped() ) {
+        if (details->isMDB()) {
+            auto num = details->mdbDBNum();
+            setMDB(&database->getMDBNum(num), num);
+            _recordStore.reset(new RecordStoreMDB(_ns.ns(), details, *_mdb, _dbNum));
+        } else if ( details->isCapped() ) {
             _recordStore.reset( new CappedRecordStoreV1( this,
                                                          _ns.ns(),
                                                          details,
                                                          &database->getExtentManager(),
                                                          _ns.coll() == "system.indexes" ) );
-        }
-        else {
+        } else {
             _recordStore.reset( new SimpleRecordStoreV1( _ns.ns(),
                                                          details,
                                                          &database->getExtentManager(),
                                                          _ns.coll() == "system.indexes" ) );
         }
+
+
         _magic = 1357924;
         _indexCatalog.init();
     }
@@ -130,8 +137,152 @@ namespace mongo {
         return true;
     }
 
+
+    class MDBCollectionIteratorBase : public CollectionIterator {
+    public:
+        MDBCollectionIteratorBase(const Collection* c)
+            : _eof(false)
+            , _nextId(0)
+            , _collection(c)
+            , _collectionId(c->getMDBNum())
+        {
+            auto& txn = cc().getContext()->getTxn();
+            _cursor = mdb::Cursor(txn, *_collection->getMDB());
+        }
+
+        // True if getNext will produce no more data, false otherwise.
+        virtual bool isEOF() final { return _eof; }
+
+        // Return the DiskLoc that the iterator points at.  Returns DiskLoc() if isEOF.
+        virtual DiskLoc curr() final {
+            if (_eof) return DiskLoc();
+            return DiskLoc(MDBLoc(_collectionId, _nextId));
+        }
+
+        // Return the DiskLoc that the iterator points at and move the iterator to the next item
+        // from the collection.  Returns DiskLoc() if isEOF.
+        virtual DiskLoc getNext() final {
+            if (_eof) return DiskLoc();
+
+            auto ret = curr();
+
+            if (auto kv = advance())
+                _nextId = kv->first.as<uint32_t>();
+            else
+                _eof = true;
+
+            return ret;
+        }
+
+        // Can only be called after prepareToYield and before recoverFromYield.
+        virtual void invalidate(const DiskLoc& dl) final { }
+
+        // Save any state required to resume operation (without crashing) after DiskLoc deletion or
+        // a collection drop.
+        virtual void prepareToYield() final {
+            _cursor = mdb::Cursor();
+        }
+
+        // Returns true if collection still exists, false otherwise.
+        virtual bool recoverFromYield() final {
+            // if the collection is dropped, then the cursor should be destroyed
+            // this check is just a sanity check that the Collection instance we're about to use
+            // has need been destroyed
+            verify( _collection->ok() );
+
+            if (_eof) return true;
+
+            auto& txn = cc().getContext()->getTxn();
+            _cursor = mdb::Cursor(txn, *_collection->getMDB());
+            seekRecover();
+
+            return true;
+        }
+
+    protected:
+        mdb::Cursor _cursor;
+        bool _eof;
+        uint32_t _nextId;
+
+        virtual void seekRecover() = 0;
+        virtual mdb::MaybeKV advance() = 0;
+
+    private:
+        const Collection* _collection;
+        uint32_t _collectionId;
+    };
+
+    class MDBForwardIterator : public  MDBCollectionIteratorBase {
+    public:
+        MDBForwardIterator(const Collection* c, const DiskLoc& start)
+            : MDBCollectionIteratorBase(c)
+        {
+            auto maybeKV = start.isNull()
+                ? _cursor.first()
+                : _cursor.seekRange(MDBLoc(start).id)
+                ;
+
+            if (maybeKV)
+                _nextId = maybeKV->first.as<uint32_t>();
+            else
+                _eof = true;
+        }
+
+    private:
+        virtual void seekRecover() final {
+            if (auto kv = _cursor.seekRange(_nextId)) {
+                _nextId = kv->first.as<uint32_t>();
+            } else {
+                _eof = true;
+            }
+        }
+
+        virtual mdb::MaybeKV advance() final { return _cursor.next(); }
+    };
+
+    class MDBReverseIterator : public  MDBCollectionIteratorBase {
+    public:
+        MDBReverseIterator(const Collection* c, const DiskLoc& start)
+            : MDBCollectionIteratorBase(c)
+        {
+            auto maybeKV = start.isNull()
+                ? _cursor.last()
+                : _cursor.seekRange(MDBLoc(start).id) // should always exist
+                ;
+
+            if (maybeKV)
+                _nextId = maybeKV->first.as<uint32_t>();
+            else
+                _eof = true;
+        }
+
+    private:
+        virtual void seekRecover() final {
+            auto kv = _cursor.seekRange(_nextId);
+            if (!kv) // can happen if the current node and all higher have been deleted.
+                kv = _cursor.last();
+
+            if (kv) {
+                _nextId = kv->first.as<uint32_t>();
+            } else {
+                _eof = true;
+            }
+        }
+
+        virtual mdb::MaybeKV advance() final { return _cursor.prev(); }
+    };
+
+
     CollectionIterator* Collection::getIterator( const DiskLoc& start, bool tailable,
                                                      const CollectionScanParams::Direction& dir) const {
+        if (_mdb) {
+            if (dir == CollectionScanParams::FORWARD) {
+                return new MDBForwardIterator(this, start);
+            } else {
+                return new MDBReverseIterator(this, start);
+            }
+        }
+
         verify( ok() );
         if ( _details->isCapped() )
             return new CappedIterator( this, start, tailable, dir );
@@ -160,6 +311,7 @@ namespace mongo {
 
     StatusWith<DiskLoc> Collection::insertDocument( const DocWriter* doc, bool enforceQuota ) {
         verify( _indexCatalog.numIndexesTotal() == 0 ); // eventually can implement, just not done
+        invariant(!_mdb);
 
         StatusWith<DiskLoc> loc = _recordStore->insertRecord( doc,
                                                              enforceQuota ? largestFileNumberInQuota() : 0 );
@@ -326,7 +478,12 @@ namespace mongo {
             }
         }
 
-        if ( oldRecord->netLength() < objNew.objsize() ) {
+        if (_mdb) {
+            // Broadcast the mutation so that query results stay correct.
+            _cursorCache.invalidateDocument(oldLocation, INVALIDATION_MUTATION);
+
+            _mdb->put(cc().getContext()->getTxn(), MDBLoc(oldLocation).id, objNew);
+        } else if ( oldRecord->netLength() < objNew.objsize() ) {
             // doesn't fit, have to move to new location
 
             if ( _details->isCapped() )
@@ -383,12 +540,14 @@ namespace mongo {
                 debug->keyUpdates += updatedKeys;
         }
 
-        // Broadcast the mutation so that query results stay correct.
-        _cursorCache.invalidateDocument(oldLocation, INVALIDATION_MUTATION);
+        if (!_mdb) {
+            // Broadcast the mutation so that query results stay correct.
+            _cursorCache.invalidateDocument(oldLocation, INVALIDATION_MUTATION);
 
-        //  update in place
-        int sz = objNew.objsize();
-        memcpy(getDur().writingPtr(oldRecord->data(), sz), objNew.objdata(), sz);
+            //  update in place
+            int sz = objNew.objsize();
+            memcpy(getDur().writingPtr(oldRecord->data(), sz), objNew.objdata(), sz);
+        }
 
         return StatusWith<DiskLoc>( oldLocation );
     }

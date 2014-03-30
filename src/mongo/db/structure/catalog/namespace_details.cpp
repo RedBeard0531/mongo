@@ -90,6 +90,7 @@ namespace mongo {
         _reservedA = 0;
         _extraOffset = 0;
         _indexBuildsInProgress = 0;
+        _mdbDBNum = uint32_t(-1);
         memset(_reserved, 0, sizeof(_reserved));
     }
 

@@ -167,8 +167,8 @@ namespace mongo {
 
 #else
         general_options.addOptionChaining("storage.dbPath", "dbpath", moe::String,
-                "directory for datafiles - defaults to /data/db/")
-                                         .setDefault(moe::Value(std::string("/data/db")));
+                "directory for datafiles - defaults to /data/lmdb/")
+                                         .setDefault(moe::Value(std::string("/data/lmdb")));
 
 #endif
         general_options.addOptionChaining("storage.directoryPerDB", "directoryperdb", moe::Switch,

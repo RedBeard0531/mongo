@@ -62,6 +62,7 @@ env.Library('foundation',
 
 env.CppUnitTest('text_test', 'util/text_test.cpp', LIBDEPS=['foundation'])
 env.CppUnitTest('util/time_support_test', 'util/time_support_test.cpp', LIBDEPS=['foundation'])
+env.CppUnitTest('util/mdb_test', 'util/mdb_test.cpp', LIBDEPS=['$BUILD_DIR/third_party/shim_lmdb'])
 
 env.Library('stringutils', ['util/stringutils.cpp', 'util/base64.cpp', 'util/hex.cpp'])
 
@@ -619,6 +620,7 @@ serverOnlyFiles = [ "db/curop.cpp",
                     "db/storage/extent_manager.cpp",
                     "db/structure/catalog/index_details.cpp",
                     "db/structure/record_store.cpp",
+                    "db/structure/record_store_mdb.cpp",
                     "db/structure/record_store_v1_base.cpp",
                     "db/structure/record_store_v1_capped.cpp",
                     "db/structure/record_store_v1_simple.cpp",
@@ -892,7 +894,9 @@ env.Library("serveronly", serverOnlyFiles,
                      "db/exec/working_set",
                      "db/exec/exec",
                      "db/query/query",
-                     '$BUILD_DIR/third_party/shim_snappy'])
+                     '$BUILD_DIR/third_party/shim_lmdb',
+                     '$BUILD_DIR/third_party/shim_snappy',
+                     ])
 
 
 env.Library("message_server_port", "util/net/message_server_port.cpp")

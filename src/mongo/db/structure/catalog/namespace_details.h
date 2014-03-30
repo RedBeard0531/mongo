@@ -121,9 +121,11 @@ namespace mongo {
         int _indexBuildsInProgress;            // Number of indexes currently being built
 
         int _userFlags;
-        char _reserved[72];
+        uint32_t _mdbDBNum;
+        char _reserved[68];
         /*-------- end data 496 bytes */
     public:
+
         explicit NamespaceDetails( const DiskLoc &loc, bool _capped );
 
         class Extra {
@@ -193,6 +195,9 @@ namespace mongo {
         void setFirstExtentInvalid();
         void setLastExtentInvalid();
 
+        bool isMDB() const { return _mdbDBNum != uint32_t(-1); }
+        uint32_t mdbDBNum() const { return _mdbDBNum; }
+        void mdbDBNum(uint32_t num) { *getDur().writing(&_mdbDBNum) = num; }
 
         long long dataSize() const { return _stats.datasize; }
         long long numRecords() const { return _stats.nrecords; }

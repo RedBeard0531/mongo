@@ -43,9 +43,9 @@ namespace mongo {
 
         StorageGlobalParams() :
 #ifdef _WIN32
-            dbpath("\\data\\db\\"),
+            dbpath("\\data\\lmdb\\"),
 #else
-            dbpath("/data/db/"),
+            dbpath("/data/lmdb/"),
 #endif
             directoryperdb(false),
             lenForNewNsFiles(16 * 1024 * 1024),

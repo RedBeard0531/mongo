@@ -557,20 +557,22 @@ namespace mongo {
         verify( ctx->inDB( db , path ) );
         Database *database = ctx->db();
         verify( database->name() == db );
+        if (false) { // XXX TODO
 
-        oplogCheckCloseDatabase( database ); // oplog caches some things, dirty its caches
+            oplogCheckCloseDatabase( database ); // oplog caches some things, dirty its caches
 
-        if( BackgroundOperation::inProgForDb(db) ) {
-            log() << "warning: bg op in prog during close db? " << db << endl;
+            if( BackgroundOperation::inProgForDb(db) ) {
+                log() << "warning: bg op in prog during close db? " << db << endl;
+            }
+
+            /* important: kill all open cursors on the database */
+            string prefix(db);
+            prefix += '.';
+
+            dbHolderW().erase( db, path );
+            ctx->_clear();
+            delete database; // closes files
         }
-
-        /* important: kill all open cursors on the database */
-        string prefix(db);
-        prefix += '.';
-
-        dbHolderW().erase( db, path );
-        ctx->_clear();
-        delete database; // closes files
     }
 
     void receivedUpdate(Message& m, CurOp& op) {
