@@ -38,10 +38,12 @@ namespace mongo {
 
     IndexCatalogEntry::IndexCatalogEntry( Collection* collection,
                                           IndexDescriptor* descriptor,
-                                          RecordStore* recordstore )
+                                          RecordStore* recordstore,
+                                          mdb::DB* mdb )
         : _collection( collection ),
           _descriptor( descriptor ),
           _recordStore( recordstore ),
+          _mdb(mdb),
           _accessMethod( NULL ),
           _forcedBtreeIndex( NULL ),
           _ordering( Ordering::make( descriptor->keyPattern() ) ),

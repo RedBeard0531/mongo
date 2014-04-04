@@ -43,7 +43,7 @@ namespace mongo {
     public:
         virtual ~BtreeIndexCursor();
 
-        bool isEOF() const;
+        virtual bool isEOF() const;
 
         /**
          * Called from btree.cpp when we're about to delete a Btree bucket.
@@ -55,8 +55,8 @@ namespace mongo {
         virtual Status seek(const BSONObj& position);
 
         // Btree-specific seeking functions.
-        Status seek(const vector<const BSONElement*>& position,
-                    const vector<bool>& inclusive);
+        virtual Status seek(const vector<const BSONElement*>& position,
+                            const vector<bool>& inclusive);
 
         /**
          * Seek to the key 'position'.  If 'afterKey' is true, seeks to the first
@@ -64,11 +64,11 @@ namespace mongo {
          *
          * Btree-specific.
          */
-        void seek(const BSONObj& position, bool afterKey);
+        virtual void seek(const BSONObj& position, bool afterKey);
 
-        Status skip(const BSONObj &keyBegin, int keyBeginLen, bool afterKey,
-                    const vector<const BSONElement*>& keyEnd,
-                    const vector<bool>& keyEndInclusive);
+        virtual Status skip(const BSONObj &keyBegin, int keyBeginLen, bool afterKey,
+                       const vector<const BSONElement*>& keyEnd,
+                       const vector<bool>& keyEndInclusive);
 
         virtual BSONObj getKey() const;
         virtual DiskLoc getValue() const;
@@ -79,7 +79,7 @@ namespace mongo {
          * Returns true if 'this' points at the same exact key as 'other'.
          * Returns false otherwise.
          */
-        bool pointsAt(const BtreeIndexCursor& other);
+        virtual bool pointsAt(const BtreeIndexCursor& other);
 
         virtual Status savePosition();
 
@@ -87,7 +87,7 @@ namespace mongo {
 
         virtual string toString();
 
-    private:
+    protected:
         // We keep the constructor private and only allow the AM to create us.
         friend class BtreeBasedAccessMethod;
 

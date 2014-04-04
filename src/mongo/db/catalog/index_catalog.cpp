@@ -62,6 +62,7 @@
 #include "mongo/db/storage/data_file.h"
 #include "mongo/db/structure/catalog/namespace_details.h"
 #include "mongo/db/structure/record_store_v1_simple.h"
+#include "mongo/db/structure/record_store_mdb.h"
 #include "mongo/util/assert_util.h"
 #include "mongo/util/log.h"
 
@@ -132,14 +133,23 @@ namespace mongo {
                  str::stream() << "no NamespaceDetails for index: " << descriptor->toString(),
                  indexMetadata );
 
-        auto_ptr<RecordStore> recordStore( new SimpleRecordStoreV1( descriptor->indexNamespace(),
-                                                                    indexMetadata,
-                                                                    _collection->getExtentManager(),
-                                                                    false ) );
+        auto_ptr<RecordStore> recordStore;
+        mdb::DB* mdbDb = nullptr;
+
+        if (indexMetadata->isMDB()) {
+            auto num = indexMetadata->mdbDBNum();
+            mdbDb = &(_collection->_database->getMDBNum(num));
+        } else {
+            recordStore.reset(new SimpleRecordStoreV1(descriptor->indexNamespace(),
+                                                      indexMetadata,
+                                                      _collection->getExtentManager(),
+                                                      false));
+        }
 
         auto_ptr<IndexCatalogEntry> entry( new IndexCatalogEntry( _collection,
                                                                   descriptorCleanup.release(),
-                                                                  recordStore.release() ) );
+                                                                  recordStore.release(),
+                                                                  mdbDb ) );
 
         entry->init( _createAccessMethod( entry->descriptor(),
                                           entry.get() ) );
@@ -451,6 +461,8 @@ namespace mongo {
         NamespaceIndex& nsi = db->namespaceIndex();
         invariant( nsi.details( descriptor->indexNamespace() ) == NULL );
         nsi.add_ns( descriptor->indexNamespace(), DiskLoc(), false );
+
+        db->allocateMDBNumForIndex(descriptor->indexNamespace());
 
         // 4) system.namespaces entry index ns
         db->_addNamespaceToCatalog( descriptor->indexNamespace(), NULL );

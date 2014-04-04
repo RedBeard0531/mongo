@@ -35,6 +35,7 @@
 #include "mongo/base/owned_pointer_vector.h"
 #include "mongo/bson/ordering.h"
 #include "mongo/db/diskloc.h"
+#include "mongo/util/mdb.h"
 
 namespace mongo {
 
@@ -48,7 +49,8 @@ namespace mongo {
     public:
         IndexCatalogEntry( Collection* collection,
                            IndexDescriptor* descriptor, // ownership passes to me
-                           RecordStore* recordStore ); // ownership passes to me
+                           RecordStore* recordStore, // ownership passes to me
+                           mdb::DB* mdb );
 
         ~IndexCatalogEntry();
 
@@ -88,6 +90,8 @@ namespace mongo {
         // if this ready is ready for queries
         bool isReady() const;
 
+        mdb::DB* getMDB() const { return _mdb; }
+
     private:
 
         int _indexNo() const;
@@ -103,6 +107,8 @@ namespace mongo {
         IndexDescriptor* _descriptor; // owned here
 
         RecordStore* _recordStore; // owned here
+
+        mdb::DB* _mdb; // not owned here
 
         IndexAccessMethod* _accessMethod; // owned here
         IndexAccessMethod* _forcedBtreeIndex; // owned here

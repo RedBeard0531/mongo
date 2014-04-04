@@ -196,6 +196,8 @@ namespace mongo {
         mdb::Env& getMDB() { return _mdb.env; }
         mdb::DB& getMDBNum(uint32_t num) { return _mdb.dbs[num]; }
 
+        void allocateMDBNumForIndex(const StringData& indexNs);
+
     private:
 
         void _clearCollectionCache( const StringData& fullns );

@@ -55,6 +55,15 @@
 
 namespace mongo {
 
+namespace {
+    int keyV1Compare(const MDB_val* lraw, const MDB_val* rraw, const void* ctx) {
+        const auto l = mdb::Data(*lraw).as<KeyV1>();
+        const auto r = mdb::Data(*rraw).as<KeyV1>();
+        const auto ord = static_cast<const Ordering*>(ctx);
+        return l.woCompare(r, *ord);
+    }
+}
+
     MONGO_EXPORT_SERVER_PARAMETER(newCollectionsUsePowerOf2Sizes, bool, true);
 
     Status CollectionOptions::parse( const BSONObj& options ) {
@@ -234,7 +243,7 @@ namespace mongo {
             else {
                 // can't open lazily :(
                 _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                              MDB_NOTLS | MDB_NOSUBDIR | !MDB_WRITEMAP);
+                              MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC);
             }
             _magic = 781231;
         }
@@ -305,26 +314,45 @@ namespace mongo {
         verify(this);
 
         _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                      MDB_NOTLS | MDB_NOSUBDIR | !MDB_WRITEMAP);
+                      MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC);
 
         auto txn = mdb::Txn::Write(getMDB());
-        auto snsId = _namespaceIndex.details(_namespacesName)->mdbDBNum();
-        auto& sns = _mdb.dbs[snsId];
-        sns.open(txn, BSONObjBuilder::numStr(snsId).c_str(),
-                 !MDB_CREATE | MDB_INTEGERKEY);
 
         {
+            auto snsId = _namespaceIndex.details(_namespacesName)->mdbDBNum();
+            auto& sns = _mdb.dbs[snsId];
+            sns.open(txn, BSONObjBuilder::numStr(snsId).c_str(),
+                     !MDB_CREATE | MDB_INTEGERKEY);
+
             auto cursor = mdb::Cursor(txn, sns);
             while (auto kv = cursor.next()) {
                 auto obj = kv->second.as<BSONObj>();
                 auto name = obj["name"].String();
                 if (NamespaceString::normal(name)) {
                     auto nsd = _namespaceIndex.details(name);
+                    if (nsd->isMDB()) {
+                        auto dbNum = nsd->mdbDBNum();
+                        _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
+                                             !MDB_CREATE | MDB_INTEGERKEY);
+                    }
+                }
+            }
+
+            auto& idxNs = _mdb.dbs[_namespaceIndex.details(_indexesName)->mdbDBNum()];
+            cursor = mdb::Cursor(txn, idxNs);
+            while (auto kv = cursor.next()) {
+                auto obj = kv->second.as<BSONObj>();
+                auto name = obj["name"].String();
+                auto ns = obj["ns"].String();
+                auto fullNs = ns + ".$" + name;
+                // TODO Ordering
+                auto nsd = _namespaceIndex.details(fullNs);
+                if (nsd->isMDB()) {
                     auto dbNum = nsd->mdbDBNum();
                     _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
-                                         !MDB_CREATE | MDB_INTEGERKEY);
+                                         !MDB_CREATE | MDB_DUPSORT | MDB_DUPFIXED | MDB_INTEGERDUP);
+                    _mdb.dbs[dbNum].setCompare(txn, keyV1Compare);
                 }
-                //TODO indexes
             }
         }
         txn.commit();
@@ -688,6 +716,20 @@ namespace mongo {
         }
     }
 
+    void Database::allocateMDBNumForIndex(const StringData& indexNs) {
+        int dbNum = 0;
+        for (; dbNum < MDBStuff::maxDBs; dbNum++) {
+            if (!_mdb.dbs[dbNum]) break;
+        }
+        invariant(dbNum < MDBStuff::maxDBs);
+
+        auto& txn = cc().getContext()->getTxn();
+        _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
+                             MDB_CREATE | MDB_DUPSORT | MDB_DUPFIXED | MDB_INTEGERDUP);
+        _mdb.dbs[dbNum].setCompare(txn, keyV1Compare);
+        _namespaceIndex.details(indexNs)->mdbDBNum(dbNum);
+    }
+
     Collection* Database::createCollection( const StringData& ns,
                                             const CollectionOptions& options,
                                             bool allocateDefaultSpace,
@@ -717,8 +759,11 @@ namespace mongo {
 
         _namespaceIndex.add_ns( ns, DiskLoc(), options.capped );
 
-        const bool useMDB = NamespaceString::normal(ns);
-        if (useMDB) {
+        const bool isIndex = !NamespaceString::normal(ns);
+
+        if (isIndex) {
+            invariant(false);
+        } else {
             int dbNum = 0;
             for (; dbNum < MDBStuff::maxDBs; dbNum++) {
                 if (!_mdb.dbs[dbNum]) break;
@@ -728,7 +773,6 @@ namespace mongo {
             auto& txn = cc().getContext()->getTxn();
             _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
                                  MDB_CREATE | MDB_INTEGERKEY);
-
             _namespaceIndex.details(ns)->mdbDBNum(dbNum);
         }
 
@@ -755,8 +799,8 @@ namespace mongo {
         if ( options.cappedMaxDocs > 0 )
             nsd->setMaxCappedDocs( options.cappedMaxDocs );
 
-        if (useMDB) {
-            // NOTHING
+        if (true) {
+            // NOTHING for mdb!
 
         } else if ( allocateDefaultSpace ) {
             if ( options.initialNumExtents > 0 ) {

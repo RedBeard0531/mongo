@@ -102,7 +102,7 @@ namespace mongo {
 
     protected:
         // Friends who need getKeys.
-        friend class BtreeBulk;
+        friend class BtreeBulkBase;
 
         // See below for body.
         class BtreeBasedPrivateUpdateData;

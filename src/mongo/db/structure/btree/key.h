@@ -121,6 +121,7 @@ namespace mongo {
 
         /** makes a copy (memcpy's the whole thing) */
         KeyV1Owned(const KeyV1& rhs);
+        void reset(const KeyV1& rhs);
 
     private:
         StackBufBuilder b;

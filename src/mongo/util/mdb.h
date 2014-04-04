@@ -230,6 +230,10 @@ namespace mdb {
             check(mdb_set_dupsort(txn, get(), cmp));
         }
 
+        void setCompareCtx(MDB_txn* txn, const void* ctx) {
+            check(mdb_set_cmpctx(txn, get(), ctx));
+        }
+
         // TODO mdb_dbi_relfunc
         // TODO mdb_dbi_relctx
 

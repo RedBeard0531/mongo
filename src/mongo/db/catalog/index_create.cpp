@@ -289,7 +289,7 @@ namespace mongo {
             }
         }
 
-        verify( !btreeState->head().isNull() );
+        // verify( !btreeState->head().isNull() );
         MONGO_TLOG(0) << "build index done.  scanned " << n << " total records. "
                       << t.millis() / 1000.0 << " secs" << endl;
 
