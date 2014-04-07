@@ -244,7 +244,7 @@ typedef struct MDB_val {
 } MDB_val;
 
 /** @brief A callback function used to compare two keys in a database */
-typedef int  (MDB_cmp_func)(const MDB_val *a, const MDB_val *b);
+typedef int  (MDB_cmp_func)(const MDB_val *a, const MDB_val *b, const void *cmpctx);
 
 /** @brief A callback function used to relocate a position-dependent data item
  * in a fixed-address database.
@@ -1133,6 +1133,8 @@ int  mdb_set_relfunc(MDB_txn *txn, MDB_dbi dbi, MDB_rel_func *rel);
 	 * </ul>
 	 */
 int  mdb_set_relctx(MDB_txn *txn, MDB_dbi dbi, void *ctx);
+
+int  mdb_set_cmpctx(MDB_txn *txn, MDB_dbi dbi, const void *ctx);
 
 	/** @brief Get items from a database.
 	 *
