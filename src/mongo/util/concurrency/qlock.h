@@ -76,7 +76,7 @@ namespace mongo {
     class QLock : boost::noncopyable {
         struct Z { 
             Z() : n(0) { }
-            boost::condition c;
+            boost::condition_variable c;
             int n;
         };
         boost::mutex m;
@@ -182,7 +182,7 @@ namespace mongo {
     inline void QLock::lock_r() {
         boost::mutex::scoped_lock lk(m);
         while( !r_legal() ) {
-            r.c.wait(m);
+            r.c.wait(lk);
         }
         r.n++;
     }
@@ -192,7 +192,7 @@ namespace mongo {
     inline void QLock::lock_w() { 
         boost::mutex::scoped_lock lk(m);
         while( !w_legal() ) {
-            w.c.wait(m);
+            w.c.wait(lk);
         }
         w.n++;
     }
@@ -202,7 +202,7 @@ namespace mongo {
     inline void QLock::lock_R() {
         boost::mutex::scoped_lock lk(m);
         while( ! R_legal() ) {
-            R.c.wait(m);
+            R.c.wait(lk);
         }
         R.n++;
     }
@@ -211,7 +211,7 @@ namespace mongo {
         unsigned long long end = curTimeMillis64() + millis;
         boost::mutex::scoped_lock lk(m);
         while( !R_legal() && curTimeMillis64() < end ) {
-            R.c.timed_wait(m, boost::posix_time::milliseconds(millis));
+            R.c.timed_wait(lk, boost::posix_time::milliseconds(millis));
         }
         if ( R_legal() ) {
             R.n++;
@@ -226,7 +226,7 @@ namespace mongo {
 
         ++numPendingGlobalWrites;
         while (!W_legal() && curTimeMillis64() < end) {
-            W.c.timed_wait(m, boost::posix_time::milliseconds(millis));
+            W.c.timed_wait(lk, boost::posix_time::milliseconds(millis));
         }
         --numPendingGlobalWrites;
 
@@ -272,7 +272,7 @@ namespace mongo {
         ++numPendingGlobalWrites;
 
         while( W.n + R.n + w.n + r.n > 1 ) {
-            U.c.wait(m);
+            U.c.wait(lk);
         }
         --numPendingGlobalWrites;
 
@@ -296,7 +296,7 @@ namespace mongo {
         long long myGeneration = generationX;
 
         while ( !X_legal() && (myGeneration == generationX) )
-            X.c.wait(m);
+            X.c.wait(lk);
 
         if ( myGeneration == generationX ) {
             fassert( 16214, X_legal() );
@@ -307,7 +307,7 @@ namespace mongo {
         }
 
         while ( myGeneration == generationXExit )
-            X.c.wait(m);
+            X.c.wait(lk);
 
         fassert( 16216, R.n == 0 );
         fassert( 16217, w.n > 0 );
@@ -330,15 +330,15 @@ namespace mongo {
 
     // "i will be writing. i will coordinate with no one. you better stop them all"
     inline void QLock::_lock_W() {
+        boost::mutex::scoped_lock lk(m);
         ++numPendingGlobalWrites;
         while( !W_legal() ) {
-            W.c.wait(m);
+            W.c.wait(lk);
         }
         --numPendingGlobalWrites;
         W.n++;
     }
     inline void QLock::lock_W() {
-        boost::mutex::scoped_lock lk(m);
         _lock_W();
     }
 
