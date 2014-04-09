@@ -47,6 +47,7 @@ namespace mongo {
 
     // static
     bool CollectionScan::diskLocInMemory(DiskLoc loc) {
+        return true;
         if (MONGO_FAIL_POINT(collscanInMemoryFail)) {
             return false;
         }

@@ -57,6 +57,7 @@ namespace mongo {
     }
 
     bool recordInMemory(const char* data) {
+        return true;
         if (MONGO_FAIL_POINT(fetchInMemoryFail)) {
             return false;
         }

@@ -189,6 +189,8 @@ namespace mongo {
     }
 
     void ExtentManager::flushFiles( bool sync ) {
+        _mdb.env.sync(sync);
+
         DEV Lock::assertAtLeastReadLocked( _dbname );
         for( vector<DataFile*>::iterator i = _files.begin(); i != _files.end(); i++ ) {
             DataFile *f = *i;

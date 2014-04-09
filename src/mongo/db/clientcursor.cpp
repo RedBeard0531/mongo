@@ -245,6 +245,7 @@ namespace mongo {
     }
 
     int ClientCursor::suggestYieldMicros() {
+        return 0;
         int writers = 0;
         int readers = 0;
 

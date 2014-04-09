@@ -514,7 +514,7 @@ namespace mongo {
             ls.lockedNestable(db,-1);
             fassert(16133,_weLocked==0);
             _weLocked = nestableLocks[db];
-            _weLocked->lock_shared();
+            //_weLocked->lock_shared();
         }
     }
 
@@ -670,7 +670,7 @@ namespace mongo {
             else
                 lockState().unlockedOther();
 
-            _weLocked->unlock_shared();
+            // _weLocked->unlock_shared();
         }
 
         if( _locked_r ) {
@@ -736,7 +736,7 @@ namespace mongo {
             ls.lockedOther(-1);
         }
         fassert(16135,_weLocked==0);
-        ls.otherLock()->lock_shared();
+        // ls.otherLock()->lock_shared();
         _weLocked = ls.otherLock();
     }
 

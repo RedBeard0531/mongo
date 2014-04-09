@@ -457,6 +457,7 @@ namespace mongo {
     }
 
     bool Record::likelyInPhysicalMemory( const char* data ) {
+        return true;
         DEV {
             // we don't want to do this too often as it makes DEBUG builds very slow
             // at some point we might want to pass in what type of Record this is and

@@ -644,7 +644,8 @@ namespace mongo {
             // place", that is, some values of the old document just get adjusted without any
             // change to the binary layout on the bson layer. It may be that a whole new
             // document is needed to accomodate the new bson layout of the resulting document.
-            doc.reset(oldObj, mutablebson::Document::kInPlaceEnabled);
+            //doc.reset(oldObj, mutablebson::Document::kInPlaceEnabled);
+            doc.reset(oldObj, mutablebson::Document::kInPlaceDisabled);
             BSONObj logObj;
 
 
@@ -716,7 +717,7 @@ namespace mongo {
             // Save state before making changes
             runner->saveState();
 
-            if (inPlace && !driver->modsAffectIndices()) {
+            if (false && inPlace && !driver->modsAffectIndices()) {
 
                 // If a set of modifiers were all no-ops, we are still 'in place', but there is
                 // no work to do, in which case we want to consider the object unchanged.

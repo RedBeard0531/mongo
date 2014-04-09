@@ -365,6 +365,7 @@ namespace mongo {
 
     void CollectionCursorCache::invalidateDocument( const DiskLoc& dl,
                                                     InvalidationType type ) {
+                        return;
         SimpleMutex::scoped_lock lk( _mutex );
 
         for ( RunnerSet::iterator it = _nonCachedRunners.begin();
