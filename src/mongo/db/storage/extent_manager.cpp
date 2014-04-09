@@ -42,6 +42,7 @@
 #include "mongo/db/storage/record.h"
 
 namespace mongo {
+    const int MDBStuff::maxDBs = 1024;
 
     ExtentManager::ExtentManager( const StringData& dbname,
                                   const StringData& path,

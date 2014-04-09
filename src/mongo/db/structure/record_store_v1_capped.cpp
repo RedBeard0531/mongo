@@ -93,7 +93,7 @@ namespace mongo {
         // dataFileVersion preserve
         // indexFileVersion preserve
         t->_multiKeyIndexBits = 0;
-        t->_reservedA = 0;
+        t->_cappedMaxSize = 0;
         t->_extraOffset = 0;
         // indexBuildInProgress preserve 0
         memset(t->_reserved, 0, sizeof(t->_reserved));

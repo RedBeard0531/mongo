@@ -48,12 +48,14 @@ namespace mongo {
         , _db(db)
         , _dbNum(dbnum)
     {
-        auto& txn = cc().getContext()->getTxn();
-        auto cursor = mdb::Cursor(txn, _db);
-        if (auto kv = cursor.last()) {
-            _nextId = kv->first.as<uint32_t>() + 1;
-        } else {
-            _nextId = 0;
+        if (NamespaceString::normal(ns)) {
+            auto& txn = cc().getContext()->getTxn();
+            auto cursor = mdb::Cursor(txn, _db);
+            if (auto kv = cursor.last()) {
+                _nextId = kv->first.as<uint32_t>() + 1;
+            } else {
+                _nextId = 0;
+            }
         }
     }
 
@@ -61,6 +63,29 @@ namespace mongo {
         auto ml = MDBLoc(loc);
         invariant(ml.collection == _dbNum);
         return _db.get(cc().getContext()->getTxn(), ml.id).as<Record*>();
+    }
+
+    void RecordStoreMDB::cappedPostInsert() {
+        if (!_details->isCapped())
+            return;
+
+        if (size_t(_details->dataSize()) <= _details->maxCappedSize()
+            && _details->numRecords() <= _details->maxCappedDocs())
+            return; // don't init the cursor
+
+        auto& txn = cc().getContext()->getTxn();
+        auto cursor = mdb::Cursor(txn, _db);
+        while (size_t(_details->dataSize()) > _details->maxCappedSize()
+               || _details->numRecords() > _details->maxCappedDocs()) {
+            auto kv = cursor.next();
+
+            // this would mean deleting what we just inserted. possible today, but should check
+            // before we get here and fail the insert instead.
+            invariant(kv);
+
+            _details->incrementStats( -1 * kv->second.mv_size, -1 );
+            cursor.deleteCurrent();
+        }
     }
 
     StatusWith<DiskLoc> RecordStoreMDB::insertRecord( const DocWriter* doc, int quotaMax ) {
@@ -74,6 +99,8 @@ namespace mongo {
 
         _details->incrementStats( size, 1 );
 
+        cappedPostInsert();
+
         return StatusWith<DiskLoc>(DiskLoc(MDBLoc(_dbNum, id)));
     }
 
@@ -86,14 +113,13 @@ namespace mongo {
         invariant(kv.second.mv_size == size_t(len));
 
         _details->incrementStats( len, 1 );
-        
-        // TODO delete if capped
+
+        cappedPostInsert();
 
         return StatusWith<DiskLoc>(DiskLoc(MDBLoc(_dbNum, id)));
     }
 
     void RecordStoreMDB::deleteRecord( const DiskLoc& dl ) {
-        DEV PRINT(__FUNCTION__);
         auto ml = MDBLoc(dl);
         invariant(ml.collection == _dbNum);
 

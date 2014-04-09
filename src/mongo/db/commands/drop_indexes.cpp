@@ -50,6 +50,7 @@ namespace mongo {
         virtual bool slaveOk() const {
             return false;
         }
+        virtual bool lockGlobally() const override { return true; }
         virtual LockType locktype() const { return WRITE; }
         virtual void help( stringstream& help ) const {
             help << "drop indexes for a collection";
@@ -179,6 +180,7 @@ namespace mongo {
     public:
         virtual bool logTheOp() { return false; } // only reindexes on the one node
         virtual bool slaveOk() const { return true; }    // can reindex on a secondary
+        virtual bool lockGlobally() const override { return true; }
         virtual LockType locktype() const { return WRITE; }
         virtual void help( stringstream& help ) const {
             help << "re-index a collection";

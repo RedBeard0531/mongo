@@ -253,7 +253,7 @@ namespace mongo {
         b.appendBuf( rhs.data(), rhs.dataSize() );
         _keyData = (const unsigned char *) b.buf();
         dassert( b.len() == dataSize() ); // check datasize method is correct
-        dassert( (*_keyData & cNOTUSED) == 0 );
+        dassert( (*_keyData & cNOTUSED) == 0  || *_keyData == IsBSON);
     }
 
     void KeyV1Owned::reset(const KeyV1& rhs) {
@@ -261,7 +261,7 @@ namespace mongo {
         b.appendBuf( rhs.data(), rhs.dataSize() );
         _keyData = (const unsigned char *) b.buf();
         dassert( b.len() == dataSize() ); // check datasize method is correct
-        dassert( (*_keyData & cNOTUSED) == 0 );
+        dassert( (*_keyData & cNOTUSED) == 0  || *_keyData == IsBSON);
     }
 
     // fromBSON to Key format
@@ -372,6 +372,7 @@ namespace mongo {
         }
         _keyData = (const unsigned char *) b.buf();
         dassert( b.len() == dataSize() ); // check datasize method is correct
+        dassert( *_keyData != IsBSON );
         dassert( (*_keyData & cNOTUSED) == 0 );
     }
 

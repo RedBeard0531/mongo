@@ -203,14 +203,22 @@ namespace mongo {
 
             void _clear() { // this is sort of an "early destruct" indication, _ns can never be uncleared
                 const_cast<string&>(_ns).clear();
-                getTxn().commit();
+                if (getTxn()) {
+                    getTxn().commit();
+                }
                 _db = 0;
             }
 
             /** call before unlocking, so clear any non-thread safe state
              *  _db gets restored on the relock
              */
-            void unlocked() { _db = 0;  getTxn().commit();}
+            void unlocked() {
+                const_cast<string&>(_ns).clear();
+                if (getTxn()) {
+                    getTxn().commit();
+                }
+                _db = 0;
+            }
 
             /** call after going back into the lock, will re-establish non-thread safe stuff */
             void relocked() { _finishInit(); }

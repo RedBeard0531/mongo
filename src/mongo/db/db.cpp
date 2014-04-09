@@ -447,6 +447,8 @@ namespace mongo {
                     warning() << "Internal error while reading collection " << systemIndexes;
                 }
 
+                runner.reset(); // need to close the cursor before closing the db
+
                 Database::closeDatabase(dbName.c_str(), storageGlobalParams.dbpath);
             }
         }

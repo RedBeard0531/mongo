@@ -418,6 +418,7 @@ namespace mongo {
         }
         virtual void help( stringstream& help ) const { help << "drop a collection\n{drop : <collectionName>}"; }
         virtual LockType locktype() const { return WRITE; }
+        virtual bool lockGlobally() const { return true; } // for now needed for MDB
 
         virtual std::vector<BSONObj> stopIndexBuilds(Database* db, 
                                                      const BSONObj& cmdObj) {
@@ -1122,6 +1123,9 @@ namespace mongo {
                 errmsg = "ns does not exist";
                 return false;
             }
+
+            uassert(20002, "can't use collMod on mdb collection",
+                    !coll->getMDB());
 
             NamespaceDetails* nsd = coll->detailsWritable();
 

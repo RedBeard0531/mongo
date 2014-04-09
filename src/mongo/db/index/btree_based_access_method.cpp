@@ -51,10 +51,8 @@ namespace mongo {
     BtreeBasedAccessMethod::BtreeBasedAccessMethod(IndexCatalogEntry* btreeState)
         : _btreeState(btreeState), _descriptor(btreeState->descriptor()) {
 
-        DEV PRINT(_descriptor->infoObj());
-        DEV PRINT(_btreeState->getMDB());
         if (_btreeState->getMDB()) {
-            invariant(_descriptor->version() == 1);
+            // invariant(_descriptor->version() == 1); // for now just always use v1 comparisons
             _btreeState->getMDB()->setCompareCtx(cc().getContext()->getTxn(),
                                                  &_btreeState->ordering());
         }
@@ -193,12 +191,10 @@ namespace mongo {
             
             
         virtual bool isEOF() const {
-            DEV PRINT(__FUNCTION__);
             return _eof;
         }
 
         virtual Status seek(const BSONObj& position) {
-            DEV PRINT(__FUNCTION__);
             if (_cursor.seekRange(KeyV1Owned(position))) {
                 if (_cursor.countDups() > 1) {
                     if (_direction == 1) {
@@ -227,7 +223,6 @@ namespace mongo {
          * Btree-specific.
          */
         virtual void seek(const BSONObj& position, bool afterKey) {
-            DEV PRINT(__FUNCTION__);
             const KeyV1Owned key(position);
             if (auto kv = _cursor.seekRange(key)) {
                 if (afterKey && kv->first.as<KeyV1>().woEqual(key)) {
@@ -250,7 +245,10 @@ namespace mongo {
                 if (_direction == 1) {
                     _eof = true;
                 } else {
-                    _eof = !_cursor.last();
+                    auto kv = _cursor.last();
+                    _eof = !kv;
+                    if (kv)
+                        dassert(kv->first.as<KeyV1>().woCompare(key, _btreeState->ordering()) < 0);
                 }
             }
         }
@@ -265,7 +263,8 @@ namespace mongo {
 
             const auto afterKey = !inclusive[0];
             for (auto b : inclusive) {
-                invariant(b == !afterKey); // temporary assumption
+                uassert(20000, "mixed key seeking not supported yet",
+                        b == !afterKey);
             }
 
             seek(bb.done(), afterKey);
@@ -276,13 +275,35 @@ namespace mongo {
         virtual Status skip(const BSONObj &keyBegin, int keyBeginLen, bool afterKey,
                        const vector<const BSONElement*>& keyEnd,
                        const vector<bool>& keyEndInclusive) {
+            uassert(20003, "reverse skip not supported yet",
+                    _direction > 0);
+
             _bsonKeyBuf.reset();
             BSONObjBuilder bb(_bsonKeyBuf);
 
-            bb.appendElements(keyBegin);
+            auto keyBeginIt = BSONObjIterator(keyBegin);
+            for (int i = 0; i < keyBeginLen; i++) {
+                uassert(20004, "mixed key skipping not supported yet",
+                        keyEndInclusive[i] == !afterKey);
+                bb.append(keyBeginIt.next());
+            }
+
+
             for (size_t i = keyBeginLen; i < keyEnd.size(); i++) {
-                bb.append(*keyEnd[i]);
-                invariant(keyEndInclusive[i] == !afterKey); // temporary assumption
+                uassert(20001, "mixed key skipping not supported yet",
+                        keyEndInclusive[i] == !afterKey);
+                if (keyEnd[i]) {
+                    bb.append(*keyEnd[i]);
+                } else {
+                    uassert(20005, "skip on reverse index not supported yet",
+                            _btreeState->ordering().get(i) > 0);
+                    auto useMaxKey = afterKey == (_direction == _btreeState->ordering().get(i));
+                    if (useMaxKey) {
+                        bb.appendMaxKey(StringData());
+                    } else {
+                        bb.appendMinKey(StringData());
+                    }
+                }
             }
 
             seek(bb.done(), afterKey);
@@ -290,15 +311,12 @@ namespace mongo {
         }
 
         virtual BSONObj getKey() const {
-            DEV PRINT(__FUNCTION__);
             return _cursor.current()->first.as<KeyV1>().toBson();
         }
         virtual DiskLoc getValue() const {
-            DEV PRINT(__FUNCTION__);
             return _cursor.current()->second.as<DiskLoc>();
         }
         virtual void next() {
-            DEV PRINT(__FUNCTION__);
             if (_direction == 1) {
                 _eof = !_cursor.next();
             } else {
@@ -312,7 +330,6 @@ namespace mongo {
          * Returns false otherwise.
          */
         virtual bool pointsAt(const BtreeIndexCursor& other) {
-            DEV PRINT(__FUNCTION__);
             if (isEOF()) {
                 return other.isEOF();
             }
@@ -331,7 +348,6 @@ namespace mongo {
         }
 
         virtual Status savePosition() {
-            DEV PRINT(__FUNCTION__);
             if (!_eof) {
                 auto kv = _cursor.current();
                 invariant(kv);
@@ -346,7 +362,6 @@ namespace mongo {
         }
 
         virtual Status restorePosition() {
-            DEV PRINT(__FUNCTION__);
             invariant(!_eof);
 
             _cursor = mdb::Cursor(cc().getContext()->getTxn(), *_btreeState->getMDB());
@@ -413,7 +428,6 @@ namespace mongo {
     };
 
     Status BtreeBasedAccessMethod::newCursor(IndexCursor **out) const {
-        DEV PRINT(__FUNCTION__);
         if (_btreeState->getMDB()) {
             *out = new MDBIndexCursor(_btreeState, _interface);
         } else {
@@ -540,7 +554,6 @@ namespace mongo {
     }
 
     DiskLoc BtreeBasedAccessMethod::findSingle( const BSONObj& key ) const {
-        DEV PRINT(__FUNCTION__);
         if (_btreeState->getMDB()) {
             auto& db = *_btreeState->getMDB();
             auto& txn = cc().getContext()->getTxn();
@@ -913,7 +926,10 @@ namespace mongo {
                     }
                 }
 
-                cursor.put(key, d.second, flags); // | (matchesLast ? MDB_APPENDDUP : MDB_APPEND));
+                auto result = cursor.put(key, d.second, flags | (matchesLast ? MDB_APPENDDUP
+                                                                             : MDB_APPEND));
+                first = false;
+                lastKey = result.first;
 
                 pm.hit();
             }

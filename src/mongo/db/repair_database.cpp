@@ -194,29 +194,30 @@ namespace mongo {
     void _applyOpToDataFiles( const string& database, FileOp &fo, bool afterAllocator, const string& path ) {
         if ( afterAllocator )
             FileAllocator::get()->waitUntilFinished();
-        string c = database;
-        c += '.';
-        boost::filesystem::path p(path);
+        boost::filesystem::path dir(path);
         if (storageGlobalParams.directoryperdb)
-            p /= database;
-        boost::filesystem::path q;
-        q = p / (c+"ns");
-        bool ok = false;
-        MONGO_ASSERT_ON_EXCEPTION( ok = fo.apply( q ) );
-        if ( ok ) {
-            LOG(2) << fo.op() << " file " << q.string() << endl;
+            dir /= database;
+
+        for (auto extension : {"ns", "mdb", "mdb-lock"}) {
+            boost::filesystem::path filePath = dir / (database + '.' + extension);
+            bool ok = false;
+            MONGO_ASSERT_ON_EXCEPTION( ok = fo.apply( filePath ) );
+            if ( ok ) {
+                LOG(2) << fo.op() << " file " << filePath.string() << endl;
+            }
         }
         int i = 0;
         int extra = 10; // should not be necessary, this is defensive in case there are missing files
         while ( 1 ) {
             verify( i <= DiskLoc::MaxFiles );
             stringstream ss;
-            ss << c << i;
-            q = p / ss.str();
-            MONGO_ASSERT_ON_EXCEPTION( ok = fo.apply(q) );
+            ss << database << '.' << i;
+            boost::filesystem::path filePath = dir / ss.str();
+            bool ok = false;
+            MONGO_ASSERT_ON_EXCEPTION( ok = fo.apply(filePath) );
             if ( ok ) {
                 if ( extra != 10 ) {
-                    LOG(1) << fo.op() << " file " << q.string() << endl;
+                    LOG(1) << fo.op() << " file " << filePath.string() << endl;
                     log() << "  _applyOpToDataFiles() warning: extra == " << extra << endl;
                 }
             }

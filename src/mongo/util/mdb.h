@@ -67,7 +67,11 @@ namespace mdb {
         explicit Error(int rc) : std::system_error(rc, get_error_category()) {}
     };
 
-    __attribute__((noinline)) inline void fail(int code) { printStackTrace(); throw Error(code); }
+    __attribute__((noinline)) inline void fail(int code) {
+        std::cout << "MDB ERROR: " << code << " " << mdb_strerror(code) << std::endl;
+        printStackTrace();
+        throw Error(code);
+    }
     inline void check(int ret) { if (MONGO_unlikely(ret != MDB_SUCCESS)) fail(ret);}
 
     template <typename T, void(*func)(T*)>
@@ -292,7 +296,7 @@ namespace mdb {
         //
 
         MaybeKV first() { return simple(MDB_FIRST); }
-        MaybeKV firstDup() { return simple(MDB_FIRST); }
+        MaybeKV firstDup() { return simple(MDB_FIRST_DUP); }
 
         MaybeKV current() const { return simple(MDB_GET_CURRENT); }
         MaybeKV currentMultiple() const { return simple(MDB_GET_MULTIPLE); }

@@ -139,7 +139,7 @@ namespace mongo {
             uassert( 13416, "captrunc must specify a collection", !coll.empty() );
             NamespaceString nss( dbname, coll );
             int n = cmdObj.getIntField( "n" );
-            bool inc = cmdObj.getBoolField( "inc" ); // inclusive range?
+            const bool inc = cmdObj.getBoolField( "inc" ); // inclusive range?
 
             Client::WriteContext ctx( nss.ns() );
             Collection* collection = ctx.ctx().db()->getCollection( nss.ns() );
@@ -153,7 +153,19 @@ namespace mongo {
                 Runner::RunnerState state = runner->getNext(NULL, &end);
                 massert( 13418, "captrunc invalid n", Runner::RUNNER_ADVANCED == state);
             }
-            collection->detailsWritable()->cappedTruncateAfter( nss.ns().c_str(), end, inc );
+            
+            if (auto db = collection->getMDB()) {
+                auto endId = MDBLoc(end).id;
+                auto cursor = mdb::Cursor(ctx.ctx().getTxn(), *db);
+                while (auto kv = cursor.next()) {
+                    const auto foundIt = kv->first.as<uint32_t>() == endId;
+                    if (foundIt && !inc) break;
+                    cursor.deleteCurrent();
+                    if (foundIt) break;
+                }
+            } else {
+                collection->detailsWritable()->cappedTruncateAfter( nss.ns().c_str(), end, inc );
+            }
             return true;
         }
     };

@@ -36,6 +36,7 @@
 #include "mongo/db/query/runner.h"
 #include "mongo/s/collection_metadata.h"
 #include "mongo/util/background.h"
+#include "mongo/util/mdb.h"
 #include "mongo/util/net/message.h"
 
 namespace mongo {
@@ -146,6 +147,9 @@ namespace mongo {
         unsigned pinValue() const { return _pinValue; }
 
         static long long totalOpen();
+
+        // TODO provide proper API
+        mdb::Txn txn;
 
     private:
         friend class ClientCursorMonitor;

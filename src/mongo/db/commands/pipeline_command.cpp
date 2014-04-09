@@ -302,18 +302,18 @@ namespace {
                 verify(pPipeline);
             }
 #endif
+            // This will throw if the sharding version for this connection is out of date. The
+            // lock must be held continuously from now until we have we created both the output
+            // ClientCursor and the input Runner. This ensures that both are using the same
+            // sharding version that we synchronize on here. This is also why we always need to
+            // create a ClientCursor even when we aren't outputting to a cursor. See the comment
+            // on ShardFilterStage for more details.
+            Client::ReadContext ctx(ns);
 
             PipelineRunner* runner = NULL;
             scoped_ptr<ClientCursorPin> pin; // either this OR the runnerHolder will be non-null
             auto_ptr<PipelineRunner> runnerHolder;
             {
-                // This will throw if the sharding version for this connection is out of date. The
-                // lock must be held continuously from now until we have we created both the output
-                // ClientCursor and the input Runner. This ensures that both are using the same
-                // sharding version that we synchronize on here. This is also why we always need to
-                // create a ClientCursor even when we aren't outputting to a cursor. See the comment
-                // on ShardFilterStage for more details.
-                Client::ReadContext ctx(ns);
 
                 Collection* collection = ctx.ctx().db()->getCollection(ns);
 
@@ -356,7 +356,12 @@ namespace {
                     pPipeline->run(result);
                 }
 
-                if (!keepCursor && pin) pin->deleteUnderlying();
+                if (keepCursor && pin && pin->c())
+                    pin->c()->txn = std::move(ctx.ctx().getTxn());
+
+                if (!keepCursor && pin) {
+                    pin->deleteUnderlying();
+                }
             }
             catch (...) {
                 // Clean up cursor on way out of scope.

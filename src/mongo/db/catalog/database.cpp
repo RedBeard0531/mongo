@@ -243,7 +243,7 @@ namespace {
             else {
                 // can't open lazily :(
                 _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                              MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC);
+                              MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC | MDB_NORDAHEAD);
             }
             _magic = 781231;
         }
@@ -314,7 +314,7 @@ namespace {
         verify(this);
 
         _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                      MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC);
+                      MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC | MDB_NORDAHEAD);
 
         auto txn = mdb::Txn::Write(getMDB());
 
@@ -338,20 +338,22 @@ namespace {
                 }
             }
 
-            auto& idxNs = _mdb.dbs[_namespaceIndex.details(_indexesName)->mdbDBNum()];
-            cursor = mdb::Cursor(txn, idxNs);
-            while (auto kv = cursor.next()) {
-                auto obj = kv->second.as<BSONObj>();
-                auto name = obj["name"].String();
-                auto ns = obj["ns"].String();
-                auto fullNs = ns + ".$" + name;
-                // TODO Ordering
-                auto nsd = _namespaceIndex.details(fullNs);
-                if (nsd->isMDB()) {
-                    auto dbNum = nsd->mdbDBNum();
-                    _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
-                                         !MDB_CREATE | MDB_DUPSORT | MDB_DUPFIXED | MDB_INTEGERDUP);
-                    _mdb.dbs[dbNum].setCompare(txn, keyV1Compare);
+            if (auto idxNsDet = _namespaceIndex.details(_indexesName)) {
+                auto& idxNs = _mdb.dbs[idxNsDet->mdbDBNum()];
+                auto cursor = mdb::Cursor(txn, idxNs);
+                while (auto kv = cursor.next()) {
+                    auto obj = kv->second.as<BSONObj>();
+                    auto name = obj["name"].String();
+                    auto ns = obj["ns"].String();
+                    auto fullNs = ns + ".$" + name;
+                    auto nsd = _namespaceIndex.details(fullNs);
+                    if (nsd->isMDB()) {
+                        auto dbNum = nsd->mdbDBNum();
+                        _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
+                                             !MDB_CREATE
+                                             | MDB_DUPSORT | MDB_DUPFIXED | MDB_INTEGERDUP);
+                        _mdb.dbs[dbNum].setCompare(txn, keyV1Compare);
+                    }
                 }
             }
         }
@@ -774,6 +776,10 @@ namespace {
             _mdb.dbs[dbNum].open(txn, BSONObjBuilder::numStr(dbNum).c_str(),
                                  MDB_CREATE | MDB_INTEGERKEY);
             _namespaceIndex.details(ns)->mdbDBNum(dbNum);
+
+            if (options.capped) {
+                _namespaceIndex.details(ns)->setMaxCappedSize(options.cappedSize);
+            }
         }
 
 
@@ -876,6 +882,7 @@ namespace {
 
         BackgroundOperation::assertNoBgOpInProgForNs( ns );
 
+
         {
             // remove from the system catalog
             BSONObj cond = BSON( "name" << ns );   // { name: "colltodropname" }
@@ -883,7 +890,9 @@ namespace {
         }
 
         // free extents
-        if( !d->firstExtent().isNull() ) {
+        if (d->isMDB()) {
+            _mdb.dbs[d->mdbDBNum()].drop(cc().getContext()->getTxn());
+        } else if( !d->firstExtent().isNull() ) {
             _extentManager.freeExtents(d->firstExtent(), d->lastExtent());
             d->setFirstExtentInvalid();
             d->setLastExtentInvalid();

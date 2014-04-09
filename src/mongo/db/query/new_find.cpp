@@ -170,6 +170,12 @@ namespace mongo {
             uassert(17011, "auth error", str::equals(ns, cc->ns().c_str()));
             *isCursorAuthorized = true;
 
+            mdb::Txn oldTxn;
+            if (cc->txn) {
+                oldTxn = std::move(ctx->ctx().getTxn());
+                ctx->ctx().getTxn() = std::move(cc->txn);
+            }
+
             // Reset timeout timer on the cursor since the cursor is still in use.
             cc->setIdleTime(0);
 
@@ -184,7 +190,7 @@ namespace mongo {
                 cc->updateSlaveLocation(curop); 
             }
 
-            if (cc->isAggCursor) {
+            if (cc->isAggCursor && !cc->txn) { // if we have a txn, don't have a real lock
                 // Agg cursors handle their own locking internally.
                 ctx.reset(); // unlocks
             }
@@ -302,6 +308,13 @@ namespace mongo {
                 // If the getmore had a time limit, remaining time is "rolled over" back to the
                 // cursor (for use by future getmore ops).
                 cc->setLeftoverMaxTimeMicros( curop.getRemainingMaxTimeMicros() );
+
+                cc->txn = std::move(ctx->ctx().getTxn());
+
+            }
+
+            if (oldTxn) {
+                ctx->ctx().getTxn() = std::move(oldTxn);
             }
         }
 
@@ -708,7 +721,6 @@ namespace mongo {
 
             QLOG() << "caching runner with cursorid " << ccId
                    << " after returning " << numResults << " results" << endl;
-
             // ClientCursor takes ownership of runner.  Release to make sure it's not deleted.
             runner.release();
 
@@ -729,6 +741,11 @@ namespace mongo {
             // If the query had a time limit, remaining time is "rolled over" to the cursor (for
             // use by future getmore ops).
             cc->setLeftoverMaxTimeMicros(curop.getRemainingMaxTimeMicros());
+
+            if (ctx.ctx().getTxn()) {
+                cc->txn = std::move(ctx.ctx().getTxn());
+            }
+
         }
         else {
             QLOG() << "Not caching runner but returning " << numResults << " results.\n";

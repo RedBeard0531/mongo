@@ -230,6 +230,10 @@ namespace mongo {
             return StatusWith<CompactStats>( ErrorCodes::BadValue,
                                              "cannot compact when indexes in progress" );
 
+        if ( _mdb )
+            return StatusWith<CompactStats>( ErrorCodes::BadValue,
+                                             "cannot compact MDB-based collection" );
+
         // this is a big job, so might as well make things tidy before we start just to be nice.
         getDur().commitIfNeeded();
 

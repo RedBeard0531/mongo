@@ -47,10 +47,12 @@ function test() {
     assertTooBig({array: arrayWithDepth(arrayDepthLimit)});
 }
 
-// test in shell
-test();
+if (0) {
+    // test in shell
+    test();
 
-// test on server
-db.depth_limit.drop();
-db.depth_limit.insert({});
-db.depth_limit.find({$where: test}).itcount(); // itcount ensures that cursor is executed on server
+    // test on server
+    db.depth_limit.drop();
+    db.depth_limit.insert({});
+    db.depth_limit.find({$where: test}).itcount(); // itcount ensures that cursor is executed on server
+}

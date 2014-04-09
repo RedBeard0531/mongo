@@ -115,7 +115,7 @@ namespace mongo {
         unsigned long long _multiKeyIndexBits;
 
         // ofs 400 (16)
-        unsigned long long _reservedA;
+        unsigned long long _cappedMaxSize;
         long long _extraOffset;               // where the $extra info is located (bytes relative to this)
 
         int _indexBuildsInProgress;            // Number of indexes currently being built
@@ -212,6 +212,9 @@ namespace mongo {
         bool isCapped() const { return _isCapped; }
         long long maxCappedDocs() const;
         void setMaxCappedDocs( long long max );
+
+        unsigned long long maxCappedSize() const { return _cappedMaxSize; }
+        void setMaxCappedSize( unsigned long long max ) { _cappedMaxSize = max; }
 
         int lastExtentSize() const { return _lastExtentSize; }
         void setLastExtentSize( int newMax );

@@ -41,6 +41,7 @@ namespace mongo {
     public:
         BSONElementManipulator( const BSONElement &element ) :
             _element( element ) {
+            invariant(false); // shouldn't be used in MDB mode.
             verify( !_element.eoo() );
         }
 

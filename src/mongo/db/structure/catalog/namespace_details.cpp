@@ -87,7 +87,7 @@ namespace mongo {
         _dataFileVersion = 0;
         _indexFileVersion = 0;
         _multiKeyIndexBits = 0;
-        _reservedA = 0;
+        _cappedMaxSize = 0;
         _extraOffset = 0;
         _indexBuildsInProgress = 0;
         _mdbDBNum = uint32_t(-1);

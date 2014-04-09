@@ -58,7 +58,9 @@ namespace mongo {
 
         virtual Status truncate() final;
 
-    protected:
+    private:
+        void cappedPostInsert();
+
         NamespaceDetails* _details;
         mdb::DB& _db;
         const uint32_t _dbNum;
