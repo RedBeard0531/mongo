@@ -916,7 +916,7 @@ env.Library("mongodwebserver",
              ],
             LIBDEPS=["coredb", "mongodandmongos"])
 
-mongodOnlyFiles = [ "db/db.cpp", "db/commands/touch.cpp", "db/mongod_options_init.cpp" ]
+mongodOnlyFiles = [ "db/commands/zmq.cpp", "db/db.cpp", "db/commands/touch.cpp", "db/mongod_options_init.cpp" ]
 
 # ----- TARGETS ------
 
