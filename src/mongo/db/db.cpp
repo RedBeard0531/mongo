@@ -358,6 +358,13 @@ namespace mongo {
         }
     }
 
+    static bool isCurrentVersion(int major, int minor) {
+        // copied from DataFileHeader
+        return major == PDFILE_VERSION && ( minor == PDFILE_VERSION_MINOR_22_AND_OLDER
+                                         || minor == PDFILE_VERSION_MINOR_24_AND_NEWER
+                                          );
+    }
+
     // ran at startup.
     static void repairDatabasesAndCheckVersion(bool shouldClearNonLocalTmpCollections) {
         //        LastError * le = lastError.get( true );
@@ -371,8 +378,10 @@ namespace mongo {
             LOG(1) << "\t" << dbName << endl;
 
             Client::Context ctx( dbName );
-            DataFile *p = ctx.db()->getExtentManager().getFile( 0 );
-            DataFileHeader *h = p->getHeader();
+            int version;
+            int versionMinor;
+            ctx.db()->getFileFormat(&version, &versionMinor);
+
 
             if ( replSettings.usingReplSets() ) {
                 // we only care about the _id index if we are in a replset
@@ -382,19 +391,20 @@ namespace mongo {
             if (shouldClearNonLocalTmpCollections || dbName == "local")
                 ctx.db()->clearTmpCollections();
 
-            if (!h->isCurrentVersion() || mongodGlobalParams.repair) {
+            if (!isCurrentVersion(version, versionMinor) || mongodGlobalParams.repair) {
 
-                if( h->version <= 0 ) {
+                if( version <= 0 ) {
+                    DataFileHeader *h = ctx.db()->getExtentManager().getFile( 0 )->getHeader();
                     uasserted(14026,
                       str::stream() << "db " << dbName << " appears corrupt pdfile version: " << h->version
                                     << " info: " << h->versionMinor << ' ' << h->fileLength);
                 }
 
-                if ( !h->isCurrentVersion() ) {
+                if ( !isCurrentVersion(version, versionMinor) ) {
                     log() << "****" << endl;
                     log() << "****" << endl;
                     log() << "need to upgrade database " << dbName << " "
-                          << "with pdfile version " << h->version << "." << h->versionMinor << ", "
+                          << "with pdfile version " << version << "." << versionMinor << ", "
                           << "new version: "
                           << PDFILE_VERSION << "." << PDFILE_VERSION_MINOR_22_AND_OLDER
                           << endl;
@@ -402,6 +412,7 @@ namespace mongo {
 
                 if (mongodGlobalParams.upgrade) {
                     // QUESTION: Repair even if file format is higher version than code?
+                    DataFileHeader *h = ctx.db()->getExtentManager().getFile( 0 )->getHeader();
                     doDBUpgrade( dbName, h );
                 }
                 else {
@@ -422,7 +433,7 @@ namespace mongo {
                     const BSONObj key = index.getObjectField("key");
                     const string plugin = IndexNames::findPluginName(key);
 
-                    if (h->versionMinor == PDFILE_VERSION_MINOR_22_AND_OLDER) {
+                    if (versionMinor == PDFILE_VERSION_MINOR_22_AND_OLDER) {
                         if (IndexNames::existedBefore24(plugin))
                             continue;
 

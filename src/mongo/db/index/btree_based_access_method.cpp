@@ -48,6 +48,9 @@
 
 namespace mongo {
 
+    // not in header ... grumble grumble
+    void keyTooLongAssert( int code, const string& msg );
+
     BtreeBasedAccessMethod::BtreeBasedAccessMethod(IndexCatalogEntry* btreeState)
         : _btreeState(btreeState), _descriptor(btreeState->descriptor()) {
 
@@ -86,6 +89,10 @@ namespace mongo {
                     cursor.put(KeyV1Owned(key), loc, flags);
                     ++*numInserted;
                 } catch (const mdb::Error& e) {
+                    const auto isOversized = e.code().value() == MDB_BAD_VALSIZE;
+                    if (isOversized)
+                        keyTooLongAssert( 1234, "Key Too Large" );
+
                     const auto isDupKey = e.code().value() == MDB_KEYEXIST;
                     if (isDupKey) {
                         if (!_btreeState->isReady()) {
@@ -676,7 +683,16 @@ namespace mongo {
 
             // TODO optimize when keys == 1
             for (const auto& key : data->added) {
-                cursor.put(KeyV1Owned(*key), loc, flags);
+                try {
+                    cursor.put(KeyV1Owned(*key), loc, flags);
+                } catch (const mdb::Error& e) {
+                    const auto isOversized = e.code().value() == MDB_BAD_VALSIZE;
+                    if (isOversized) {
+                        keyTooLongAssert( 1234, "Key Too Large" );
+                    } else {
+                        throw;
+                    }
+                }
             }
             for (const auto& key : data->removed) {
                 verify(cursor.seekKey(KeyV1Owned(*key), loc));
@@ -883,11 +899,6 @@ namespace mongo {
                                 ignoreUniqueIndex(entry->descriptor());
             bool dropDups = entry->descriptor()->dropDups() || inDBRepair;
 
-            if (dropDups) {
-                invariant(dupsToDrop);
-            }
-
-
             scoped_ptr<BSONObjExternalSorter::Iterator> it(_phase1.sorter->iterator());
 
             // verifies that pm and op refer to the same ProgressMeter
@@ -926,10 +937,20 @@ namespace mongo {
                     }
                 }
 
-                auto result = cursor.put(key, d.second, flags | (matchesLast ? MDB_APPENDDUP
-                                                                             : MDB_APPEND));
-                first = false;
-                lastKey = result.first;
+                try {
+                    auto result = cursor.put(key, d.second, flags | (matchesLast ? MDB_APPENDDUP
+                                                                                 : MDB_APPEND));
+
+                    first = false;
+                    lastKey = result.first;
+                } catch (const mdb::Error& e) {
+                    const auto isOversized = e.code().value() == MDB_BAD_VALSIZE;
+                    if (isOversized) {
+                        keyTooLongAssert( 1234, "Key Too Large" );
+                    } else {
+                        throw;
+                    }
+                }
 
                 pm.hit();
             }

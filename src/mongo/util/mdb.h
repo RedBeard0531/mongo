@@ -88,10 +88,6 @@ namespace mdb {
             MDB_env* temp;
             check(mdb_env_create(&temp));
             _env.reset(temp);
-
-            check(mdb_env_set_maxreaders(get(), 10*1000));
-            //check(mdb_env_set_maxdbs(get(), 16*1024));
-            check(mdb_env_set_mapsize(get(), 10ll * 1024*1024*1024));
         }
 
         void open(const char* path, unsigned int flags, mdb_mode_t mode=0660) {

@@ -64,7 +64,6 @@ namespace mongo {
     struct MDBStuff {
         static const int maxDBs;
         MDBStuff() {
-            mdb::check(mdb_env_set_maxdbs(env, maxDBs));
             dbs.resize(maxDBs);
         }
         mdb::Env env;

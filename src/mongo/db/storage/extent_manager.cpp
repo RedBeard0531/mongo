@@ -160,15 +160,18 @@ namespace mongo {
                 delete p;
                 throw;
             }
-            if ( preallocateOnly )
+            if ( preallocateOnly ) {
                 delete p;
-            else
+            } else {
+                invariant(false); // MDB shouldn't allocate a file
                 _files[n] = p;
+            }
         }
         return preallocateOnly ? 0 : p;
     }
 
     DataFile* ExtentManager::_addAFile( int sizeNeeded, bool preallocateNextFile ) {
+        invariant(false); // MDB shouldn't allocate a file
         DEV Lock::assertWriteLocked( _dbname );
         int n = (int) _files.size();
         DataFile *ret = getFile( n, sizeNeeded );

@@ -223,6 +223,14 @@ namespace {
             _profile = serverGlobalParams.defaultProfile;
             checkDuplicateUncasedNames(true);
 
+            mdb::check(mdb_env_set_maxreaders(_mdb.env, 10*1000));
+            mdb::check(mdb_env_set_maxdbs(_mdb.env, MDBStuff::maxDBs));
+            mdb::check(mdb_env_set_mapsize(_mdb.env, 10ll * 1024*1024*1024));
+
+            // can't open mdb lazily :(
+            _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
+                          MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC | !MDB_NORDAHEAD);
+
             // If already exists, open.  Otherwise behave as if empty until
             // there's a write, then open.
             if (!newDb) {
@@ -240,11 +248,7 @@ namespace {
                     _namespaceIndex.kill_ns( oldFreeList );
                 }
             }
-            else {
-                // can't open lazily :(
-                _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                              MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC | MDB_NORDAHEAD);
-            }
+
             _magic = 781231;
         }
         catch(std::exception& e) {
@@ -312,9 +316,6 @@ namespace {
     //        repair purposes yet we do not.
     void Database::openAllFiles() {
         verify(this);
-
-        _mdb.env.open((_path + "/" + _name + ".mdb").c_str(),
-                      MDB_NOTLS | MDB_NOSUBDIR | MDB_WRITEMAP | MDB_NOSYNC | MDB_NORDAHEAD);
 
         auto txn = mdb::Txn::Write(getMDB());
 
@@ -906,8 +907,8 @@ namespace {
 
     void Database::getFileFormat( int* major, int* minor ) {
         if ( _extentManager.numFiles() == 0 ) {
-            *major = 0;
-            *minor = 0;
+            *major = PDFILE_VERSION;
+            *minor = PDFILE_VERSION_MINOR_24_AND_NEWER;
             return;
         }
         const DataFile* df = _extentManager.getFile( 0 );

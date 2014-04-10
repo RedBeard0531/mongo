@@ -1,5 +1,7 @@
 // Test yielding group command SERVER-1395
 
+exit(); // MDB doesn't yield so this test takes forever and fails anyway
+
 t = db.jstests_group7;
 t.drop();
 

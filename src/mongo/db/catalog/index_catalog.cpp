@@ -240,12 +240,14 @@ namespace mongo {
 
         Database* db = _collection->_database;
 
-        DataFileHeader* dfh = db->getExtentManager().getFile(0)->getHeader();
-        if ( dfh->versionMinor == PDFILE_VERSION_MINOR_24_AND_NEWER ) {
+        int major;
+        int minor;
+        db->getFileFormat(&major, &minor);
+        if ( minor == PDFILE_VERSION_MINOR_24_AND_NEWER ) {
             return Status::OK(); // these checks have already been done
         }
 
-        fassert(16737, dfh->versionMinor == PDFILE_VERSION_MINOR_22_AND_OLDER);
+        fassert(16737, minor == PDFILE_VERSION_MINOR_22_AND_OLDER);
 
         auto_ptr<Runner> runner( InternalPlanner::collectionScan( db->_indexesName ) );
 
@@ -270,6 +272,7 @@ namespace mongo {
             warning() << "Internal error while reading system.indexes collection";
         }
 
+        DataFileHeader* dfh = db->getExtentManager().getFile(0)->getHeader();
         getDur().writingInt(dfh->versionMinor) = PDFILE_VERSION_MINOR_24_AND_NEWER;
 
         return Status::OK();
