@@ -35,8 +35,10 @@
 
 #include "mongo/base/string_data.h"
 #include "mongo/db/commands.h"
+#include "mongo/db/server_options.h"
 #include "mongo/util/concurrency/msg.h"
 #include "mongo/util/scopeguard.h"
+#include "mongo/base/init.h"
 
 namespace mongo {
 namespace {
@@ -44,28 +46,33 @@ namespace {
 
     const auto PUB_ENDPOINT = "inproc://pub";
     const auto SUB_ENDPOINT = "inproc://sub";
+    //const auto EXT_ENDPOINT = "ipc:///tmp/mongo_zmq.sock";
 
-    class BGThread {
-    public:
-        BGThread() {
-            boost::barrier barrier(2);
-            boost::thread(run, &barrier).detach();
-            barrier.wait();
-        }
-        static void run(boost::barrier* barrier) {
-            zmq::socket_t frontend (context, ZMQ_PULL);
-            frontend.bind(PUB_ENDPOINT);
-            zmq::socket_t backend (context, ZMQ_PUB);
-            backend.bind(SUB_ENDPOINT);
-            barrier->wait();
+    static void run(boost::barrier* barrier) {
+        const auto port = serverGlobalParams.port;
+        const std::string PUB_EXT_ENDPOINT = str::stream() << "tcp://*:" << (port + 2000);
+        const std::string SUB_EXT_ENDPOINT = str::stream() << "tcp://*:" << (port + 3000);
 
-            zmq::proxy(frontend, backend, NULL);
-        }
-    };
+        zmq::socket_t frontend (context, ZMQ_PULL);
+        frontend.bind(PUB_ENDPOINT);
+        frontend.bind(PUB_EXT_ENDPOINT.c_str());
 
-    void startBGThreadIfNeed() {
-        static BGThread starter;
+        zmq::socket_t backend (context, ZMQ_PUB);
+        backend.bind(SUB_ENDPOINT);
+        backend.bind(SUB_EXT_ENDPOINT.c_str());
+
+        barrier->wait();
+
+        zmq::proxy(frontend, backend, NULL);
     }
+
+    MONGO_INITIALIZER(ZMQBGThread)(::mongo::InitializerContext* context) {
+        boost::barrier barrier(2);
+        boost::thread(run, &barrier).detach();
+        barrier.wait();
+        return Status::OK();
+    }
+
 
     typedef long long CursorId;
 
@@ -133,8 +140,6 @@ namespace {
         }
 
         bool run(const string& dbname, BSONObj& request, int, string& errmsg, BSONObjBuilder& result, bool) {
-            startBGThreadIfNeed();
-
             const auto prefix = request.firstElement().String();
             const auto body = request["msg"];
             uassert(21000, "You must supply a 'msg' field",
@@ -165,8 +170,6 @@ namespace {
         }
 
         bool run(const string& dbname, BSONObj& request, int, string& errmsg, BSONObjBuilder& result, bool) {
-            startBGThreadIfNeed();
-
             const auto subscriptions = request.firstElement();
             auto cursorId = request.hasField("id") ? request["id"].Long() : 0LL;
             if (cursorId) {
