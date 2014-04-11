@@ -57,6 +57,8 @@
 #include "mongo/db/catalog/collection.h"
 #include "mongo/platform/unordered_set.h"
 
+#include "mongo/db/commands/zmq.h"
+
 namespace mongo {
 
     namespace mb = mutablebson;
@@ -604,6 +606,7 @@ namespace mongo {
             // Get next doc, and location
             DiskLoc loc;
             state = runner->getNext(&oldObj, &loc);
+            const auto oldObjOwned = oldObj.getOwned();
             const bool didYield = (oldYieldCount != curOp->numYields());
 
             if (state != Runner::RUNNER_ADVANCED) {
@@ -785,6 +788,10 @@ namespace mongo {
             if (docWasModified)
                 opDebug->nModified++;
 
+            auto prefix = nsString.ns() + "-$update";
+            auto payload = BSON("old" << oldObjOwned << "new" << newObj);
+            zmq_publish(prefix, payload);
+
             if (!request.isMulti()) {
                 break;
             }
@@ -796,6 +803,7 @@ namespace mongo {
         // TODO: Can this be simplified?
         if ((numMatched > 0) || (numMatched == 0 && !request.isUpsert()) ) {
             opDebug->nMatched = numMatched;
+
             return UpdateResult(numMatched > 0 /* updated existing object(s) */,
                                 !driver->isDocReplacement() /* $mod or obj replacement */,
                                 opDebug->nModified /* number of modified docs, no no-ops */,

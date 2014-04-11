@@ -32,6 +32,7 @@
 
 #include <zmq.hpp>
 #include <boost/thread.hpp>
+#include <thread>
 
 #include "mongo/base/string_data.h"
 #include "mongo/db/commands.h"
@@ -39,6 +40,8 @@
 #include "mongo/util/concurrency/msg.h"
 #include "mongo/util/scopeguard.h"
 #include "mongo/base/init.h"
+#include "mongo/s/config.h"
+#include "mongo/s/mongos_options.h"
 #include "mongo/db/commands/zmq.h"
 
 namespace mongo {
@@ -46,6 +49,41 @@ namespace mongo {
 
     const auto PUB_ENDPOINT = "inproc://pub";
     const auto SUB_ENDPOINT = "inproc://sub";
+
+    void zmq_publish(const StringData prefix, BSONObj payload) {
+        auto wrapped = BSON("msg" << payload);
+        auto body = wrapped.firstElement();
+        auto sock = zmq::socket_t(zmq_context, ZMQ_PUSH);
+        sock.connect(PUB_ENDPOINT);
+        invariant(sock.send(prefix.rawData(), prefix.size(), ZMQ_SNDMORE));
+        invariant(sock.send(body.rawdata(), body.size())); // just the element
+    }
+
+    void proxy(zmq::socket_t back, zmq::socket_t front) {
+        zmq::proxy(back, front, NULL);
+    }
+
+    void zmq_shard_proxy_thread() {
+        auto config_servers = configServer.getConnectionString().getServers();
+        if(config_servers.size() > 1) {
+            config_servers.erase(config_servers.begin());
+        }
+
+        zmq::socket_t int_sub(zmq_context, ZMQ_SUB);
+        zmq::socket_t int_push(zmq_context, ZMQ_PUSH);
+
+        int_sub.setsockopt(ZMQ_SUBSCRIBE, "", 0);
+        int_sub.connect(SUB_ENDPOINT);
+        
+        for(const auto &server: config_servers) {
+            auto config_host_port = HostAndPort(server);
+            auto config_push_endpoint = HostAndPort(config_host_port.host(), config_host_port.port() + 2000);
+
+            int_push.connect(("tcp://" + config_push_endpoint.toString()).c_str());
+        }
+
+        std::thread(proxy, std::move(int_sub), std::move(int_push)).detach();
+    }
 
 namespace {
     typedef long long CursorId;

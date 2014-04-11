@@ -45,9 +45,6 @@
 
 namespace mongo {
 namespace {
-    void proxy(zmq::socket_t back, zmq::socket_t front) {
-        zmq::proxy(back, front, NULL);
-    }
 
     MONGO_INITIALIZER(ZMQBGThread)(::mongo::InitializerContext* context) {
         const auto port = serverGlobalParams.port;
@@ -65,7 +62,7 @@ namespace {
 
         zmq::socket_t int_push(zmq_context, ZMQ_PUSH);
         zmq::socket_t int_xsub(zmq_context, ZMQ_XSUB);
-        
+
         for(const auto &server: config_servers) {
 	        auto config_host_port = HostAndPort(server);
 	        auto config_pull_endpoint = HostAndPort(config_host_port.host(), config_host_port.port() + 2000);

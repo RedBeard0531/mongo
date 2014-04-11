@@ -60,6 +60,8 @@
 #include "mongo/util/concurrency/mutex.h"
 #include "mongo/util/concurrency/ticketholder.h"
 
+#include "mongo/db/commands/zmq.h"
+
 using namespace std;
 
 namespace mongo {
@@ -87,6 +89,7 @@ namespace mongo {
         ShardedConnectionInfo::addHook();
         shardingState.enable(server);
         configServer.init(server);
+        zmq_shard_proxy_thread();
     }
 
     // TODO: Consolidate and eliminate these various ways of setting / validating shard names

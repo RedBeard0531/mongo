@@ -33,4 +33,11 @@ namespace mongo {
 
     extern const char * const PUB_ENDPOINT;
     extern const char * const SUB_ENDPOINT;
+
+    class BSONObj;
+    class StringData;
+
+    void zmq_publish(const StringData prefix, BSONObj payload);
+    void zmq_shard_proxy_thread();
+    void proxy(zmq::socket_t back, zmq::socket_t front);
 }

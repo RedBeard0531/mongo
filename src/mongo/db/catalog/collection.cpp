@@ -48,6 +48,8 @@
 
 #include "mongo/db/auth/user_document_parser.h" // XXX-ANDY
 
+#include "mongo/db/commands/zmq.h"
+
 namespace mongo {
 
     std::string CompactOptions::toString() const {
@@ -188,6 +190,9 @@ namespace mongo {
         StatusWith<DiskLoc> status = _insertDocument( docToInsert, enforceQuota );
         if ( status.isOK() ) {
             _details->paddingFits();
+
+            auto prefix = _ns.ns() + "-$insert";
+            zmq_publish(prefix, docToInsert);
         }
 
         return status;
@@ -209,6 +214,9 @@ namespace mongo {
         Status status = indexBlock.insert( doc, loc.getValue(), indexOptions );
         if ( !status.isOK() )
             return StatusWith<DiskLoc>( status );
+
+        auto prefix = _ns.ns() + "-$insert";
+        zmq_publish(prefix, doc);
 
         return loc;
     }
@@ -258,6 +266,9 @@ namespace mongo {
         }
 
         BSONObj doc = docFor( loc );
+
+        auto prefix = _ns.ns() + "-$delete";
+        zmq_publish(prefix, doc);
 
         if ( deletedId ) {
             BSONElement e = doc["_id"];

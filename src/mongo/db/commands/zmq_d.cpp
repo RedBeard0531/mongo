@@ -43,10 +43,6 @@
 
 namespace mongo {
 namespace {
-    void proxy(zmq::socket_t back, zmq::socket_t front) {
-        zmq::proxy(back, front, NULL);
-    }
-
     MONGO_INITIALIZER(ZMQBGThread)(::mongo::InitializerContext* context) {
         const auto port = serverGlobalParams.port;
         const std::string PUB_EXT_ENDPOINT = str::stream() << "tcp://*:" << (port + 2000);
