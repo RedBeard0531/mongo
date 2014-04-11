@@ -485,7 +485,7 @@ namespace mdb {
         Data toMDB(const BSONObj& obj) { return Data(obj.objsize(), obj.objdata()); }
         BSONObj fromMDB(const Data& data) {
             auto obj = BSONObj(static_cast<char*>(data.mv_data));
-            invariant(size_t(obj.objsize()) == data.mv_size);
+            dassert(size_t(obj.objsize()) == data.mv_size);
             return obj;
         }
     };
@@ -517,7 +517,7 @@ namespace mdb {
     struct Adapter<uint32_t> {
         Data toMDB(const uint32_t& obj) { return Data(sizeof(obj), &obj); }
         uint32_t fromMDB(const Data& data) {
-            invariant(data.mv_size == sizeof(uint32_t));
+            dassert(data.mv_size == sizeof(uint32_t));
             uint32_t out;
             memcpy(&out, data.mv_data, sizeof(out));
             return out;
@@ -528,7 +528,7 @@ namespace mdb {
     struct Adapter<uint64_t> {
         Data toMDB(const uint64_t& obj) {return Data(sizeof(obj), &obj); }
         uint64_t fromMDB(const Data& data) {
-            invariant(data.mv_size == sizeof(uint64_t));
+            dassert(data.mv_size == sizeof(uint64_t));
             uint64_t out;
             memcpy(&out, data.mv_data, sizeof(out));
             return out;
@@ -564,7 +564,7 @@ namespace mdb {
     struct Adapter<DiskLoc> {
         Data toMDB(const DiskLoc& loc) {return Data(sizeof(loc), &loc); }
         DiskLoc fromMDB(const Data& data) {
-            invariant(data.mv_size == sizeof(DiskLoc));
+            dassert(data.mv_size == sizeof(DiskLoc));
             DiskLoc out;
             memcpy(&out, data.mv_data, sizeof(out));
             return out;

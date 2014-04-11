@@ -823,7 +823,7 @@ if nix:
     if linux or darwin:
         env.Append( CCFLAGS=["-Werror", "-pipe"] )
 
-    env.Append( CPPDEFINES=["_FILE_OFFSET_BITS=64"] )
+    env.Append( CPPDEFINES=["_FILE_OFFSET_BITS=64", "BOOST_DISABLE_ASSERTS"] )
     env.Append( CXXFLAGS=["-Wnon-virtual-dtor", "-Woverloaded-virtual"] )
     env.Append( LINKFLAGS=["-fPIC", "-pthread"] )
 

@@ -3,6 +3,7 @@
 #include "yaml-cpp/node/detail/node.h"
 #include "yaml-cpp/exceptions.h"
 #include <sstream>
+#include <cassert>
 
 namespace YAML
 {
