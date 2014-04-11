@@ -903,6 +903,7 @@ mongodAndMongosFiles = [
     "db/server_extra_log_context.cpp",
     "db/dbwebserver.cpp",
     "util/signal_handlers.cpp",
+    "db/commands/zmq.cpp"
     ]
 env.Library("mongodandmongos", mongodAndMongosFiles,
             LIBDEPS=["message_server_port"])
@@ -916,7 +917,7 @@ env.Library("mongodwebserver",
              ],
             LIBDEPS=["coredb", "mongodandmongos"])
 
-mongodOnlyFiles = [ "db/commands/zmq.cpp", "db/db.cpp", "db/commands/touch.cpp", "db/mongod_options_init.cpp" ]
+mongodOnlyFiles = [ "db/commands/zmq_d.cpp", "db/db.cpp", "db/commands/touch.cpp", "db/mongod_options_init.cpp" ]
 
 # ----- TARGETS ------
 
@@ -1009,7 +1010,7 @@ env.Library("mongos_options", ["s/mongos_options.cpp"],
 
 # mongos
 mongos = env.Program(
-    "mongos", [ "s/server.cpp", "s/mongos_options_init.cpp" ] ,
+    "mongos", [ "s/server.cpp", "s/mongos_options_init.cpp", "db/commands/zmq_s.cpp" ] ,
     LIBDEPS=["mongoscore", "coreserver", "coredb", "mongocommon", "coreshard", "ntservice",
              "mongodandmongos", "s/upgrade", "mongos_options" ])
 env.Install( '#/', mongos )
@@ -1093,6 +1094,7 @@ env.JSHeader("shell/mongo.cpp",
                  "shell/db.js",
                  "shell/mongo.js",
                  "shell/mr.js",
+                 "shell/pubsub.js",
                  "shell/query.js",
                  "shell/types.js",
                  "shell/upgrade_check.js",

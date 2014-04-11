@@ -39,41 +39,15 @@
 #include "mongo/util/concurrency/msg.h"
 #include "mongo/util/scopeguard.h"
 #include "mongo/base/init.h"
+#include "mongo/db/commands/zmq.h"
 
 namespace mongo {
-namespace {
-    zmq::context_t context (1);
+    zmq::context_t zmq_context (1);
 
     const auto PUB_ENDPOINT = "inproc://pub";
     const auto SUB_ENDPOINT = "inproc://sub";
-    //const auto EXT_ENDPOINT = "ipc:///tmp/mongo_zmq.sock";
 
-    static void run(boost::barrier* barrier) {
-        const auto port = serverGlobalParams.port;
-        const std::string PUB_EXT_ENDPOINT = str::stream() << "tcp://*:" << (port + 2000);
-        const std::string SUB_EXT_ENDPOINT = str::stream() << "tcp://*:" << (port + 3000);
-
-        zmq::socket_t frontend (context, ZMQ_PULL);
-        frontend.bind(PUB_ENDPOINT);
-        frontend.bind(PUB_EXT_ENDPOINT.c_str());
-
-        zmq::socket_t backend (context, ZMQ_PUB);
-        backend.bind(SUB_ENDPOINT);
-        backend.bind(SUB_EXT_ENDPOINT.c_str());
-
-        barrier->wait();
-
-        zmq::proxy(frontend, backend, NULL);
-    }
-
-    MONGO_INITIALIZER(ZMQBGThread)(::mongo::InitializerContext* context) {
-        boost::barrier barrier(2);
-        boost::thread(run, &barrier).detach();
-        barrier.wait();
-        return Status::OK();
-    }
-
-
+namespace {
     typedef long long CursorId;
 
     auto nextCursor = CursorId(1);
@@ -145,7 +119,7 @@ namespace {
             uassert(21000, "You must supply a 'msg' field",
                     !body.eoo());
 
-            auto sock = zmq::socket_t(context, ZMQ_PUSH);
+            auto sock = zmq::socket_t(zmq_context, ZMQ_PUSH);
             sock.connect(PUB_ENDPOINT);
             invariant(sock.send(prefix.data(), prefix.size(), ZMQ_SNDMORE));
             invariant(sock.send(body.rawdata(), body.size())); // just the element
@@ -177,7 +151,7 @@ namespace {
                 addSub(checkout.sock, subscriptions);
                 checkout.returnToMap();
             } else {
-                auto sock = zmq::socket_t(context, ZMQ_SUB);
+                auto sock = zmq::socket_t(zmq_context, ZMQ_SUB);
                 addSub(sock, subscriptions);
                 sock.connect(SUB_ENDPOINT);
                 cursorId = registerSock(std::move(sock));

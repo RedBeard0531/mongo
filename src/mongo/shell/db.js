@@ -1431,5 +1431,8 @@ DB.prototype.unsetWriteConcern = function() {
     delete this._writeConcern;
 };
 
+DB.prototype.PubSub = function() {
+    return new PubSub(this);
+}
 
 }());
