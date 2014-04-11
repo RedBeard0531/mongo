@@ -376,6 +376,97 @@ namespace mdb {
         MDB_cursor* get() const { return _cursor.get(); }
         unique_ptr_with_deleter<MDB_cursor, mdb_cursor_close> _cursor;
     };
+
+    template <typename Key, typename Val>
+    struct TypedPair {
+    public:
+        TypedPair() = default; // both are null/empty
+        TypedPair(const KV& source) :keyData(source.first), valData(source.second) {}
+        TypedPair(const Key& key, const Val& val) :keyData(key), valData(val) {}
+
+        Key key() const { return keyData.as<Key>(); }
+        Val val() const { return valData.as<Val>(); }
+
+        Data keyData;
+        Data valData;
+    };
+
+    template <typename Key, typename Val>
+    class TypedCursor {
+    public:
+        using KV = TypedPair<Key, Val>;
+        using MaybeKV = boost::optional<KV>;
+
+        TypedCursor() {}
+        TypedCursor(MDB_txn* txn, MDB_dbi db) :_cursor(txn, db) {}
+
+        //
+        // Wrappers around mdb_cursor_get
+        //
+
+        MaybeKV first() { return MaybeKV(_cursor.first()); }
+        MaybeKV firstDup() { return MaybeKV(_cursor.firstDup()); }
+
+        MaybeKV current() const { return MaybeKV(_cursor.current()); }
+        MaybeKV currentMultiple() const { return MaybeKV(_cursor.currentMultiple()); }
+
+        MaybeKV last() { return MaybeKV(_cursor.last()); }
+        MaybeKV lastDup() { return MaybeKV(_cursor.lastDup()); }
+
+        // TODO handle end better (return optional)
+        MaybeKV next() { return MaybeKV(_cursor.next()); }
+        MaybeKV nextDup() { return MaybeKV(_cursor.nextDup()); }
+        MaybeKV nextMultiple() { return MaybeKV(_cursor.nextMultiple()); }
+        MaybeKV nextNoDup() { return MaybeKV(_cursor.nextNoDup()); }
+        MaybeKV prev() { return MaybeKV(_cursor.prev()); }
+        MaybeKV prevDup() { return MaybeKV(_cursor.prevDup()); }
+        MaybeKV prevNoDup() { return MaybeKV(_cursor.prevNoDup()); }
+
+        bool seek(const Key& key) { return _cursor.seek(key); }
+
+        MaybeKV seekKey(const Key& key) { return MaybeKV(_cursor.seekKey(key)); }
+        MaybeKV seekKey(const Key& key, const Val& val) { return MaybeKV(_cursor.seekKey(key, val)); }
+        
+        MaybeKV seekRange(const Key& key) { return MaybeKV(_cursor.seekRange(key)); }
+        MaybeKV seekRange(const Key& key, const Val& val) { return MaybeKV(_cursor.seekRange(key, val)); }
+
+        //
+        // Wrappers around mdb_cursor_put
+        //
+        // Allowed flags:
+        // * MDB_RESERVE (pointer to write to returned)
+        // * MDB_NODUPDATA (throws if kv-pair exists)
+        // * MDB_NOOVERWRITE (throws if kv-pair exists)
+        //
+        // Allowed, but be very careful:
+        // * MDB_APPEND
+        // * MDB_APPENDDUP
+        // * MDB_MULTIPLE (val uses a weird format)
+        //
+        
+        KV put(const Key& key, const Val& val, unsigned int flags = 0) {
+            return KV(_cursor.put(key, val, flags));
+        }
+
+        Data replaceCurrent(const Val& val, unsigned int flags = 0) {
+            return _cursor.replaceCurrent(val, flags);
+        }
+
+        //
+        // others
+        //
+
+        void deleteCurrent() { _cursor.deleteCurrent(); }
+        void deleteCurrentAllDups() { _cursor.deleteCurrentAllDups(); }
+
+        size_t countDups() { return _cursor.countDups(); }
+
+        MDB_cursor* get() { return _cursor.get(); }
+        /*implicit*/ operator MDB_cursor* () { return get(); }
+
+    private:
+        mdb::Cursor _cursor;
+    };
 }
 }
 

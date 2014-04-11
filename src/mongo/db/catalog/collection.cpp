@@ -147,7 +147,7 @@ namespace mongo {
             , _collectionId(c->getMDBNum())
         {
             auto& txn = cc().getContext()->getTxn();
-            _cursor = mdb::Cursor(txn, *_collection->getMDB());
+            _cursor = Cursor(txn, *_collection->getMDB());
         }
 
         // True if getNext will produce no more data, false otherwise.
@@ -167,7 +167,7 @@ namespace mongo {
             auto ret = curr();
 
             if (auto kv = advance())
-                _nextId = kv->first.as<uint32_t>();
+                _nextId = kv->key();
             else
                 _eof = true;
 
@@ -180,7 +180,7 @@ namespace mongo {
         // Save any state required to resume operation (without crashing) after DiskLoc deletion or
         // a collection drop.
         virtual void prepareToYield() final {
-            _cursor = mdb::Cursor();
+            _cursor = Cursor();
         }
 
         // Returns true if collection still exists, false otherwise.
@@ -193,19 +193,21 @@ namespace mongo {
             if (_eof) return true;
 
             auto& txn = cc().getContext()->getTxn();
-            _cursor = mdb::Cursor(txn, *_collection->getMDB());
+            _cursor = Cursor(txn, *_collection->getMDB());
             seekRecover();
 
             return true;
         }
 
     protected:
-        mdb::Cursor _cursor;
+        using Cursor = mdb::TypedCursor<uint32_t, BSONObj>;
+
+        Cursor _cursor;
         bool _eof;
         uint32_t _nextId;
 
         virtual void seekRecover() = 0;
-        virtual mdb::MaybeKV advance() = 0;
+        virtual Cursor::MaybeKV advance() = 0;
 
     private:
         const Collection* _collection;
@@ -223,7 +225,7 @@ namespace mongo {
                 ;
 
             if (maybeKV)
-                _nextId = maybeKV->first.as<uint32_t>();
+                _nextId = maybeKV->key();
             else
                 _eof = true;
         }
@@ -231,13 +233,13 @@ namespace mongo {
     private:
         virtual void seekRecover() final {
             if (auto kv = _cursor.seekRange(_nextId)) {
-                _nextId = kv->first.as<uint32_t>();
+                _nextId = kv->key();
             } else {
                 _eof = true;
             }
         }
 
-        virtual mdb::MaybeKV advance() final { return _cursor.next(); }
+        virtual Cursor::MaybeKV advance() final { return _cursor.next(); }
     };
 
     class MDBReverseIterator : public  MDBCollectionIteratorBase {
@@ -251,7 +253,7 @@ namespace mongo {
                 ;
 
             if (maybeKV)
-                _nextId = maybeKV->first.as<uint32_t>();
+                _nextId = maybeKV->key();
             else
                 _eof = true;
         }
@@ -263,13 +265,13 @@ namespace mongo {
                 kv = _cursor.last();
 
             if (kv) {
-                _nextId = kv->first.as<uint32_t>();
+                _nextId = kv->key();
             } else {
                 _eof = true;
             }
         }
 
-        virtual mdb::MaybeKV advance() final { return _cursor.prev(); }
+        virtual Cursor::MaybeKV advance() final { return _cursor.prev(); }
     };
 
 

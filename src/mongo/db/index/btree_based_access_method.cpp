@@ -47,6 +47,9 @@
 #include "mongo/util/progress_meter.h"
 
 namespace mongo {
+namespace {
+    using MDBCursor = mdb::TypedCursor<KeyV1, DiskLoc>;
+}
 
     // not in header ... grumble grumble
     void keyTooLongAssert( int code, const string& msg );
@@ -81,7 +84,7 @@ namespace mongo {
 
             auto& db = *_btreeState->getMDB();
             auto& txn = cc().getContext()->getTxn();
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
 
             // TODO optimize when keys == 1
             for (const auto& key : keys) {
@@ -232,7 +235,7 @@ namespace mongo {
         virtual void seek(const BSONObj& position, bool afterKey) {
             const KeyV1Owned key(position);
             if (auto kv = _cursor.seekRange(key)) {
-                if (afterKey && kv->first.as<KeyV1>().woEqual(key)) {
+                if (afterKey && kv->key().woEqual(key)) {
                     if (_direction == 1) {
                         _eof = !_cursor.nextNoDup();
                     } else {
@@ -255,7 +258,7 @@ namespace mongo {
                     auto kv = _cursor.last();
                     _eof = !kv;
                     if (kv)
-                        dassert(kv->first.as<KeyV1>().woCompare(key, _btreeState->ordering()) < 0);
+                        dassert(kv->key().woCompare(key, _btreeState->ordering()) < 0);
                 }
             }
         }
@@ -318,10 +321,10 @@ namespace mongo {
         }
 
         virtual BSONObj getKey() const {
-            return _cursor.current()->first.as<KeyV1>().toBson();
+            return _cursor.current()->key().toBson();
         }
         virtual DiskLoc getValue() const {
-            return _cursor.current()->second.as<DiskLoc>();
+            return _cursor.current()->val();
         }
         virtual void next() {
             if (_direction == 1) {
@@ -350,18 +353,18 @@ namespace mongo {
             dassert(them);
 
             // compare cheap DiskLocs first
-            return us->second.as<DiskLoc>() == them->second.as<DiskLoc>()
-                && us->first.as<KeyV1>().woEqual(them->first.as<KeyV1>());
+            return us->val() == them->val()
+                && us->key().woEqual(them->key());
         }
 
         virtual Status savePosition() {
             if (!_eof) {
                 auto kv = _cursor.current();
                 invariant(kv);
-                _savedKey.reset(kv->first.as<KeyV1>());
-                _savedLoc = kv->second.as<DiskLoc>();
+                _savedKey.reset(kv->key());
+                _savedLoc = kv->val();
 
-                _cursor = mdb::Cursor();
+                _cursor = MDBCursor();
                 return Status::OK();
             } else {
                 return Status(ErrorCodes::IllegalOperation, "Can't save position when EOF");
@@ -371,11 +374,11 @@ namespace mongo {
         virtual Status restorePosition() {
             invariant(!_eof);
 
-            _cursor = mdb::Cursor(cc().getContext()->getTxn(), *_btreeState->getMDB());
+            _cursor = MDBCursor(cc().getContext()->getTxn(), *_btreeState->getMDB());
             if (auto kv = _cursor.seekRange(_savedKey, _savedLoc)) {
                 // easy case first
-                if (_direction == 1 || kv->second.as<DiskLoc>() == _savedLoc) {
-                    dassert(kv->first.as<KeyV1>().woEqual(_savedKey));
+                if (_direction == 1 || kv->val() == _savedLoc) {
+                    dassert(kv->key().woEqual(_savedKey));
                     // we're done!
                     _eof = false;
                 } else {
@@ -401,9 +404,9 @@ namespace mongo {
                             kv = _cursor.lastDup();
 
                         invariant(kv);
-                        if (kv->first.as<KeyV1>().woEqual(_savedKey)) {
+                        if (kv->key().woEqual(_savedKey)) {
                             // we know this key has nothing >= us
-                            dassert(kv->second.as<DiskLoc>() < _savedLoc);
+                            dassert(kv->val() < _savedLoc);
                             _eof = false;
                         } else {
                             // passed the mark
@@ -412,7 +415,7 @@ namespace mongo {
                     } else {
                         if ((kv = _cursor.last())) {
                             // we know this index has nothing >= us
-                            dassert(kv->first.as<KeyV1>().woCompare(_savedKey,
+                            dassert(kv->key().woCompare(_savedKey,
                                                                     _btreeState->ordering()) < 0);
                         }
                         _eof = !kv;
@@ -425,7 +428,7 @@ namespace mongo {
         virtual string toString() { return "MDB CURSOR\n"; }
 
     protected:
-        mdb::Cursor _cursor;
+        MDBCursor _cursor;
         bool _eof;
 
         KeyV1Owned _savedKey;
@@ -457,7 +460,7 @@ namespace mongo {
         if (_btreeState->getMDB()) {
             auto& db = *_btreeState->getMDB();
             auto& txn = cc().getContext()->getTxn();
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
 
             // TODO optimize size == 1
             for (const auto& key : keys) {
@@ -536,7 +539,7 @@ namespace mongo {
         if (_btreeState->getMDB()) {
             auto& db = *_btreeState->getMDB();
             auto& txn = cc().getContext()->getTxn();
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
 
             // TODO optimize size == 1
             for (const auto& key : keys) {
@@ -566,9 +569,9 @@ namespace mongo {
             auto& txn = cc().getContext()->getTxn();
 
             // TODO change mdb::DB::get(Maybe?) so we don't need a cursor here
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
             if (auto kv = cursor.seekKey(KeyV1Owned(key))) {
-                return kv->second.as<DiskLoc>();
+                return kv->val();
             } else {
                 return DiskLoc();
             }
@@ -626,7 +629,7 @@ namespace mongo {
             if (_btreeState->getMDB()) {
                 auto& db = *_btreeState->getMDB();
                 auto& txn = cc().getContext()->getTxn();
-                auto cursor = mdb::Cursor(txn, db);
+                auto cursor = MDBCursor(txn, db);
 
                 // TODO optimize size == 1
                 for (const auto& key : data->added) {
@@ -677,7 +680,7 @@ namespace mongo {
 
             auto& db = *_btreeState->getMDB();
             auto& txn = cc().getContext()->getTxn();
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
 
             const auto loc = data->loc;
 
@@ -908,7 +911,7 @@ namespace mongo {
                                                10);
             auto& db = *entry->getMDB();
             auto& txn = cc().getContext()->getTxn();
-            auto cursor = mdb::Cursor(txn, db);
+            auto cursor = MDBCursor(txn, db);
 
             const auto flags = MDB_NODUPDATA | (dupsAllowed ? 0 : MDB_NOOVERWRITE);
             auto first = true;
@@ -942,7 +945,7 @@ namespace mongo {
                                                                                  : MDB_APPEND));
 
                     first = false;
-                    lastKey = result.first;
+                    lastKey = result.keyData;
                 } catch (const mdb::Error& e) {
                     const auto isOversized = e.code().value() == MDB_BAD_VALSIZE;
                     if (isOversized) {
