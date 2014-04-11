@@ -33,6 +33,7 @@
 #include <zmq.hpp>
 #include <boost/thread.hpp>
 #include <thread>
+#include <mutex>
 
 #include "mongo/base/string_data.h"
 #include "mongo/db/commands.h"
@@ -47,8 +48,8 @@
 namespace mongo {
     zmq::context_t zmq_context (1);
 
-    const auto PUB_ENDPOINT = "inproc://pub";
-    const auto SUB_ENDPOINT = "inproc://sub";
+    const char* const PUB_ENDPOINT = "inproc://pub";
+    const char* const SUB_ENDPOINT = "inproc://sub";
 
     void zmq_publish(const StringData prefix, BSONObj payload) {
         auto wrapped = BSON("msg" << payload);
@@ -88,10 +89,12 @@ namespace mongo {
 namespace {
     typedef long long CursorId;
 
+    std::mutex mx;
     auto nextCursor = CursorId(1);
     auto cursorMap = std::map<CursorId, zmq::socket_t>();
 
     CursorId registerSock(zmq::socket_t sock) {
+        std::unique_lock<std::mutex> lk(mx);
         const auto id = nextCursor++;
         invariant(cursorMap.count(id) == 0);
         cursorMap.insert(std::make_pair(id, std::move(sock)));
@@ -111,13 +114,16 @@ namespace {
         { }
 
         void returnToMap() {
+            std::unique_lock<std::mutex> lk(mx);
             invariant(sock);
             cursorMap.find(id)->second = std::move(sock);
         }
 
         ~SocketCheckout() {
-            if (sock)
+            if (sock) {
+                std::unique_lock<std::mutex> lk(mx);
                 cursorMap.erase(id);
+            }
         }
 
         const CursorId id;
@@ -125,6 +131,7 @@ namespace {
     };
 
     SocketCheckout checkOut(CursorId id) {
+            std::unique_lock<std::mutex> lk(mx);
             auto sockIt = cursorMap.find(id);
             uassert(21002, "no such cursor",
                     sockIt != cursorMap.end());

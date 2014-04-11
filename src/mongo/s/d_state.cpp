@@ -89,7 +89,8 @@ namespace mongo {
         ShardedConnectionInfo::addHook();
         shardingState.enable(server);
         configServer.init(server);
-        zmq_shard_proxy_thread();
+        if (!serverGlobalParams.configsvr)
+            zmq_shard_proxy_thread();
     }
 
     // TODO: Consolidate and eliminate these various ways of setting / validating shard names
