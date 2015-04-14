@@ -110,6 +110,14 @@ namespace mongo {
             b->append("wt_millisSinceCommit", _timer.millis());
     }
 
+    void WiredTigerRecoveryUnit::prepareForSnapshot(OperationContext* opCtx) {
+        invariant(!_active); // Can't already be in a WT transaction.
+        invariant(!_inUnitOfWork);
+
+        getSession(opCtx); // Starts a WT transaction.
+        _areWriteUnitOfWorksBanned = true;
+    }
+
     void WiredTigerRecoveryUnit::_commit() {
         try {
             if ( _session && _active ) {
@@ -151,6 +159,7 @@ namespace mongo {
     }
 
     void WiredTigerRecoveryUnit::beginUnitOfWork(OperationContext* opCtx) {
+        invariant(!_areWriteUnitOfWorksBanned);
         invariant(!_inUnitOfWork);
         invariant(!_currentlySquirreled);
         _inUnitOfWork = true;
@@ -207,6 +216,10 @@ namespace mongo {
             _session = _sessionCache->getSession();
         }
 
+#if 1 // Remove once WT supports creating named snapshots inside of a transaction.
+        if (_areWriteUnitOfWorksBanned) return _session;
+#endif
+
         if ( !_active ) {
             _txnOpen(opCtx);
         }
@@ -219,6 +232,7 @@ namespace mongo {
             // Can't be in a WriteUnitOfWork, so safe to rollback
             _txnClose(false);
         }
+        _areWriteUnitOfWorksBanned = false;
     }
 
     void WiredTigerRecoveryUnit::setOplogReadTill( const RecordId& loc ) {
@@ -323,6 +337,16 @@ namespace mongo {
         return SnapshotId(_myTransactionCount);
     }
 
+    Status WiredTigerRecoveryUnit::setReadFromMajorityCommittedSnapshot() {
+        if (!_sessionCache->snapshotManager().haveMajorityCommittedSnapshot()) {
+            return {ErrorCodes::XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable,
+                    "XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable message"};
+        }
+
+        _readFromMajorityCommittedSnapshot = true;
+        return Status::OK();
+    }
+
     void WiredTigerRecoveryUnit::markNoTicketRequired() {
         invariant(!_ticket.hasTicket());
         _noTicketNeeded = true;
@@ -361,7 +385,17 @@ namespace mongo {
 
         WT_SESSION *s = _session->getSession();
         _syncing = _syncing || waitUntilDurableData.numWaitingForSync.load() > 0;
-        invariantWTOK( s->begin_transaction(s, _syncing ? "sync=true" : NULL) );
+
+        if (_readFromMajorityCommittedSnapshot) {
+            _sessionCache->snapshotManager().beginTransactionOnMajorityCommittedSnapshot(this,
+                                                                                         s,
+                                                                                         _syncing);
+        }
+        else {
+            invariantWTOK( s->begin_transaction(s, _syncing ? "sync=true" : NULL) );
+
+        }
+
         LOG(2) << "WT begin_transaction";
         _timer.reset();
         _active = true;

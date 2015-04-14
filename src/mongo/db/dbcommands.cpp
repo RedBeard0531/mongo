@@ -1247,6 +1247,25 @@ namespace {
             return;
         }
 
+        if (interposedCmd["$readMajorityTemporaryName"].trueValue()) {
+            if (!command->supportsReadMajority()) {
+                replyBuilder
+                    ->setMetadata(rpc::metadata::empty())
+                    .setCommandReply({ErrorCodes::InvalidOptions, str::stream()
+                        << "Command " << command->name
+                        << " does not support $readMajorityTemporaryName"});
+                return;
+            }
+
+            Status status = txn->recoveryUnit()->setReadFromMajorityCommittedSnapshot();
+            if (!status.isOK()) {
+                replyBuilder
+                    ->setMetadata(rpc::metadata::empty())
+                    .setCommandReply(status);
+                return;
+            }
+        }
+
         // Handle command option impersonatedUsers and impersonatedRoles.
         // This must come before _checkAuthorization(), as there is some command parsing logic
         // in that code path that must not see the impersonated user and roles array elements.

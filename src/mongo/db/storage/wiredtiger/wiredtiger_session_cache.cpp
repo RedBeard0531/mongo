@@ -37,6 +37,7 @@
 
 #include "mongo/db/storage/wiredtiger/wiredtiger_kv_engine.h"
 #include "mongo/db/storage/wiredtiger/wiredtiger_util.h"
+#include "mongo/stdx/memory.h"
 #include "mongo/util/log.h"
 
 namespace mongo {
@@ -124,12 +125,14 @@ namespace mongo {
     // -----------------------
 
     WiredTigerSessionCache::WiredTigerSessionCache( WiredTigerKVEngine* engine )
-        : _engine( engine ), _conn( engine->getConnection() ), _shuttingDown(0) {
-
+        : _engine(engine),
+          _conn(engine->getConnection()),
+          _snapshotManager(_conn),
+          _shuttingDown(0) {
     }
 
     WiredTigerSessionCache::WiredTigerSessionCache( WT_CONNECTION* conn )
-        : _engine( NULL ), _conn( conn ), _shuttingDown(0) {
+        : _engine( NULL ), _conn( conn ), _snapshotManager(_conn), _shuttingDown(0) {
 
     }
 
@@ -149,6 +152,7 @@ namespace mongo {
         }
 
         closeAll();
+        _snapshotManager.shutdown();
     }
 
     void WiredTigerSessionCache::closeAll() {

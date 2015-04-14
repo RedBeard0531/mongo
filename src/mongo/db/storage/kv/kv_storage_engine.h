@@ -57,7 +57,7 @@ namespace mongo {
         bool forRepair;
     };
 
-    class KVStorageEngine : public StorageEngine {
+    class KVStorageEngine final : public StorageEngine {
     public:
         /**
          * @param engine - owneership passes to me
@@ -88,6 +88,8 @@ namespace mongo {
         virtual Status repairRecordStore(OperationContext* txn, const std::string& ns);
 
         virtual void cleanShutdown();
+
+        SnapshotManager* getSnapshotManager() const final;
 
         // ------ kv ------
 

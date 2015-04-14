@@ -49,7 +49,7 @@ namespace mongo {
     class WiredTigerSession;
     class WiredTigerSessionCache;
 
-    class WiredTigerRecoveryUnit : public RecoveryUnit {
+    class WiredTigerRecoveryUnit final : public RecoveryUnit {
     public:
         WiredTigerRecoveryUnit(WiredTigerSessionCache* sc);
 
@@ -78,6 +78,8 @@ namespace mongo {
 
         virtual SnapshotId getSnapshotId() const;
 
+        Status setReadFromMajorityCommittedSnapshot() final;
+
         // ---- WT STUFF
 
         WiredTigerSession* getSession(OperationContext* opCtx);
@@ -95,8 +97,16 @@ namespace mongo {
         static WiredTigerRecoveryUnit* get(OperationContext *txn);
 
         static void appendGlobalStats(BSONObjBuilder& b);
-    private:
 
+        /**
+         * Prepares this RU to be the basis for a named snapshot.
+         *
+         * Begins a WT transaction, and invariants if we are already in one.
+         * Bans being in a WriteUnitOfWork until the next call to commitAndRestart().
+         */
+        void prepareForSnapshot(OperationContext* opCtx);
+
+    private:
         void _abort();
         void _commit();
 
@@ -106,6 +116,7 @@ namespace mongo {
         WiredTigerSessionCache* _sessionCache; // not owned
         WiredTigerSession* _session; // owned, but from pool
         bool _defaultCommit;
+        bool _areWriteUnitOfWorksBanned = false;
         bool _inUnitOfWork;
         bool _active;
         uint64_t _myTransactionCount;
@@ -114,6 +125,7 @@ namespace mongo {
         bool _currentlySquirreled;
         bool _syncing;
         RecordId _oplogReadTill;
+        bool _readFromMajorityCommittedSnapshot = false;
 
         typedef OwnedPointerVector<Change> Changes;
         Changes _changes;

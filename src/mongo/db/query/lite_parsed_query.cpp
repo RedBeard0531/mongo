@@ -336,7 +336,7 @@ namespace mongo {
                 // read after optime parsing is handled elsewhere.
                 continue;
             }
-            else {
+            else if (!str::startsWith(fieldName, '$')) {
                 mongoutils::str::stream ss;
                 ss << "Failed to parse: " << cmdObj.toString() << ". "
                    << "Unrecognized field '" << fieldName << "'.";

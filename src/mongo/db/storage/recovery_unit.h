@@ -32,6 +32,7 @@
 #include <string>
 
 #include "mongo/base/disallow_copying.h"
+#include "mongo/base/status.h"
 #include "mongo/db/storage/snapshot.h"
 #include "mongo/platform/cstdint.h"
 
@@ -86,6 +87,22 @@ namespace mongo {
          * fail if it is.
          */
         virtual void abandonSnapshot() = 0;
+
+        /**
+         * All future reads through this RecoveryUnit should be from a snapshot marked as
+         * Majority Committed. Implementations are encouraged to switch to a newer committed
+         * snapshot if available whenever they would normally change snapshots.
+         *
+         * If no snapshot has yet been marked as Majority Committed, returns a status with error
+         * code XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable.
+         *
+         * StorageEngines that don't support a SnapshotManager should use the default
+         * implementation.
+         */
+        virtual Status setReadFromMajorityCommittedSnapshot() {
+            return {ErrorCodes::CommandNotSupported,
+                    "Current storage engine does not support $readMajorityTemporaryName"};
+        }
 
         virtual SnapshotId getSnapshotId() const = 0;
 

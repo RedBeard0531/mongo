@@ -52,6 +52,7 @@
 namespace mongo {
 
     class RecoveryUnit;
+    class ResourceId;
     class WiredTigerCursor;
     class WiredTigerRecoveryUnit;
     class WiredTigerSizeStorer;
@@ -213,6 +214,14 @@ namespace mongo {
                                             const RecordId& justInserted);
 
         boost::timed_mutex& cappedDeleterMutex() { return _cappedDeleterMutex; }
+
+        /**
+         * Lock this in MODE_X to ensure there are no in-flight capped inserts.
+         *
+         * Can't acquire this while holding _uncommittedDiskLocsMutex.
+         */
+        static const ResourceId kCappedInsertResource;
+
     private:
 
         class Iterator : public RecordIterator {

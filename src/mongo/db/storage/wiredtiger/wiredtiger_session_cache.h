@@ -31,15 +31,15 @@
 
 #pragma once
 
-#include <map>
-#include <string>
-#include <vector>
-
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/shared_mutex.hpp>
-
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 #include <wiredtiger.h>
 
+#include "mongo/db/storage/wiredtiger/wiredtiger_snapshot_manager.h"
 #include "mongo/platform/atomic_word.h"
 #include "mongo/util/concurrency/spin_lock.h"
 
@@ -122,6 +122,9 @@ namespace mongo {
 
         WT_CONNECTION* conn() const { return _conn; }
 
+        WiredTigerSnapshotManager& snapshotManager() { return _snapshotManager; }
+        const WiredTigerSnapshotManager& snapshotManager() const { return _snapshotManager; }
+
     private:
         typedef std::vector<WiredTigerSession*> SessionPool;
 
@@ -141,6 +144,8 @@ namespace mongo {
 
         WiredTigerKVEngine* _engine; // not owned, might be NULL
         WT_CONNECTION* _conn; // not owned
+
+        WiredTigerSnapshotManager _snapshotManager;
 
         // Partitioned cache of WT sessions. The partition key is not important, but it is
         // important that sessions be returned to the same partition they were taken from in order

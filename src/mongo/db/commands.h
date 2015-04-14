@@ -213,6 +213,8 @@ namespace mutablebson {
          */
         virtual bool maintenanceOk() const { return true; /* assumed true prior to commit */ }
 
+        virtual bool supportsReadMajority() const { return false; }
+
         /** @param webUI expose the command in the web ui as localhost:28017/<name>
             @param oldName an optional old, deprecated name for the command
         */

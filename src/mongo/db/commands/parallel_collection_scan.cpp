@@ -36,6 +36,7 @@
 #include "mongo/db/commands/cursor_responses.h"
 #include "mongo/db/db_raii.h"
 #include "mongo/db/exec/multi_iterator.h"
+#include "mongo/db/service_context.h"
 #include "mongo/util/touch_pages.h"
 
 namespace mongo {
@@ -60,6 +61,8 @@ namespace mongo {
 
         virtual bool isWriteCommandForConfigServer() const { return false; }
         virtual bool slaveOk() const { return true; }
+
+        bool supportsReadMajority() const final { return true; }
 
         virtual Status checkAuthForCommand(ClientBasic* client,
                                            const std::string& dbname,
@@ -147,6 +150,17 @@ namespace mongo {
                     ClientCursor* cc = new ClientCursor( collection->getCursorManager(),
                                                          execs.releaseAt(i),
                                                          ns.ns() );
+
+                    if (cmdObj["$readMajorityTemporaryName"].trueValue()) {
+                        // Need to make RecoveryUnits for each cursor so that the getMores know to
+                        // use readMajority.
+                        StorageEngine* storageEngine = getGlobalServiceContext()
+                                                             ->getGlobalStorageEngine();
+                        std::unique_ptr<RecoveryUnit> newRu(storageEngine->newRecoveryUnit());
+                        // Wouldn't have entered run() if not supported.
+                        invariantOK(newRu->setReadFromMajorityCommittedSnapshot());
+                        cc->setOwnedRecoveryUnit(newRu.release());
+                    }
 
                     BSONObjBuilder threadResult;
                     appendCursorResponseObject( cc->cursorid(),

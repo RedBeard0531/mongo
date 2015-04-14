@@ -1411,6 +1411,7 @@ namespace PerfTests {
         }
 
         void setupTests() {
+            return;
             pstatsConnect();
             cout
                 << "stats test                                       rps------  time-- "

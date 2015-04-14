@@ -64,6 +64,7 @@ namespace mongo {
         virtual bool isWriteCommandForConfigServer() const { return false; }
         bool slaveOk() const { return true; }
         bool slaveOverrideOk() const { return true; }
+        bool supportsReadMajority() const final { return true; }
 
         void help(stringstream& h) const {
             h << "http://dochub.mongodb.org/core/geo#GeospatialIndexing-geoNearCommand";

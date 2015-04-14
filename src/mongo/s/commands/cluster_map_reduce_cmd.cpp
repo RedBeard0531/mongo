@@ -100,6 +100,7 @@ namespace {
                 fn == "scope" ||
                 fn == "verbose" ||
                 fn == "$queryOptions" ||
+                fn == "$readMajorityTemporaryName" ||
                 fn == LiteParsedQuery::cmdOptionMaxTimeMS) {
 
                 b.append(e);

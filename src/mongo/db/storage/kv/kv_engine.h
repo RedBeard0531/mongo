@@ -44,6 +44,7 @@ namespace mongo {
     class RecordStore;
     class RecoveryUnit;
     class SortedDataInterface;
+    class SnapshotManager;
 
     class KVEngine {
     public:
@@ -129,6 +130,13 @@ namespace mongo {
          * There is intentionally no uncleanShutdown().
          */
         virtual void cleanShutdown() = 0;
+
+        /**
+         * Return the SnapshotManager for this KVEngine or NULL if not supported.
+         *
+         * Pointer remains owned by the StorageEngine, not the caller.
+         */
+        virtual SnapshotManager* getSnapshotManager() const { return NULL; }
 
         /**
          * The destructor will never be called from mongod, but may be called from tests.

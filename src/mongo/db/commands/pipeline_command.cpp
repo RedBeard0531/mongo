@@ -168,6 +168,7 @@ namespace mongo {
         virtual bool isWriteCommandForConfigServer() const { return false; }
         virtual bool slaveOk() const { return false; }
         virtual bool slaveOverrideOk() const { return true; }
+        bool supportsReadMajority() const final { return true; }
         virtual void help(stringstream &help) const {
             help << "{ pipeline: [ { $operator: {...}}, ... ]"
                  << ", explain: <bool>"

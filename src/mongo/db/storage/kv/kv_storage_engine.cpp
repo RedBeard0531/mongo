@@ -267,6 +267,10 @@ namespace mongo {
         return _engine->isDurable();
     }
 
+    SnapshotManager* KVStorageEngine::getSnapshotManager() const {
+        return _engine->getSnapshotManager();
+    }
+
     Status KVStorageEngine::repairRecordStore(OperationContext* txn, const std::string& ns) {
         Status status = _engine->repairIdent(txn, _catalog->getCollectionIdent(ns));
         if (!status.isOK())

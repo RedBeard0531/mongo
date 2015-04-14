@@ -33,6 +33,7 @@
 #include <boost/intrusive_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
+#include <initializer_list>
 #include <string>
 #include <utility>
 #include <vector>
@@ -133,13 +134,13 @@ namespace {
             commandBuilder.setField("fromRouter", Value(true));
             commandBuilder.setField("cursor", Value(DOC("batchSize" << 0)));
 
-            if (cmdObj.hasField("$queryOptions")) {
-                commandBuilder.setField("$queryOptions", Value(cmdObj["$queryOptions"]));
-            }
-
-            if (cmdObj.hasField(LiteParsedQuery::cmdOptionMaxTimeMS)) {
-                commandBuilder.setField(LiteParsedQuery::cmdOptionMaxTimeMS,
-                                        Value(cmdObj[LiteParsedQuery::cmdOptionMaxTimeMS]));
+            const std::initializer_list<StringData> fieldsToPropagateToShards = {
+                "$queryOptions",
+                "$readMajorityTemporaryName",
+                LiteParsedQuery::cmdOptionMaxTimeMS,
+            };
+            for (auto&& field : fieldsToPropagateToShards) {
+                commandBuilder[field] = Value(cmdObj[field]);
             }
 
             BSONObj shardedCommand = commandBuilder.freeze().toBson();
@@ -186,6 +187,8 @@ namespace {
                 mergeCmd[LiteParsedQuery::cmdOptionMaxTimeMS]
                             = Value(cmdObj[LiteParsedQuery::cmdOptionMaxTimeMS]);
             }
+
+            // Not propagating $readMajorityTemporaryName to merger since it doesn't do local reads.
 
             string outputNsOrEmpty;
             if (DocumentSourceOut* out = dynamic_cast<DocumentSourceOut*>(pipeline->output())) {

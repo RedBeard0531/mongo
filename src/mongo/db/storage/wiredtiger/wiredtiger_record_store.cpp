@@ -40,6 +40,8 @@
 #include <wiredtiger.h>
 
 #include "mongo/base/checked_cast.h"
+#include "mongo/db/concurrency/d_concurrency.h"
+#include "mongo/db/concurrency/lock_manager_defs.h"
 #include "mongo/db/concurrency/write_conflict_exception.h"
 #include "mongo/db/namespace_string.h"
 #include "mongo/db/operation_context.h"
@@ -86,6 +88,9 @@ namespace {
     MONGO_FP_DECLARE(WTWriteConflictException);
 
     const std::string kWiredTigerEngineName = "wiredTiger";
+
+    const ResourceId WiredTigerRecordStore::kCappedInsertResource(RESOURCE_METADATA,
+                                                                  StringData("CAPPED_INSERT"));
 
     const long long WiredTigerRecordStore::kCollectionScanOnCreationThreshold = 10000;
 
@@ -557,9 +562,18 @@ namespace {
                                                               const char* data,
                                                               int len,
                                                               bool enforceQuota ) {
-        if ( _isCapped && len > _cappedMaxSize ) {
-            return StatusWith<RecordId>( ErrorCodes::BadValue,
-                                         "object to insert exceeds cappedMaxSize" );
+        if (_isCapped) {
+            if (len > _cappedMaxSize ) {
+                return {ErrorCodes::BadValue, "object to insert exceeds cappedMaxSize"};
+            }
+
+            if (!NamespaceString(ns()).isSystemDotProfile()) {
+                // Taking in MODE_IX which will be held until the end of our WUOW. This ensures that
+                // a MODE_X lock on this resource will wait for all in-flight capped inserts to
+                // either commit or rollback and block new ones from starting.
+                // TODO see if it is nessesary to do something else for the oplog.
+                Lock::ResourceLock{txn->lockState(), kCappedInsertResource, MODE_IX};
+            }
         }
 
         RecordId loc;

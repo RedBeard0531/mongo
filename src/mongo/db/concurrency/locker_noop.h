@@ -83,6 +83,7 @@ namespace mongo {
                                 LockMode mode,
                                 unsigned timeoutMs,
                                 bool checkDeadlock) {
+            return LOCK_OK;
             invariant(false);
         }
 
@@ -91,6 +92,7 @@ namespace mongo {
         }
 
         virtual bool unlock(ResourceId resId) {
+            return true;
             invariant(false);
         }
 

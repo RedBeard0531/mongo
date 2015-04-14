@@ -63,6 +63,7 @@ namespace mongo {
         virtual bool slaveOverrideOk() const { return true; }
         virtual bool maintenanceOk() const { return false; }
         virtual bool adminOnly() const { return false; }
+        bool supportsReadMajority() const final { return true; }
         virtual void help( stringstream& help ) const { help << "count objects in collection"; }
         virtual void addRequiredPrivileges(const std::string& dbname,
                                            const BSONObj& cmdObj,

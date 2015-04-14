@@ -114,6 +114,11 @@ namespace mongo {
         if (cmdObj.hasField("$readPreference")) {
             out->append("$queryOptions", cmdObj["$readPreference"].wrap());
         }
+
+        // Propagate $readMajorityTemporaryName
+        if (auto readMajority = cmdObj["$readMajorityTemporaryName"]) {
+            out->append(readMajority);
+        }
     }
 
     // static
