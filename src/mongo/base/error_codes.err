@@ -148,4 +148,4 @@ error_class("IndexCreationError", ["CannotCreateIndex", "IndexOptionsConflict",
                                    "IndexKeySpecsConflict", "IndexAlreadyExists"])
 
 # XXX out of place to avoid merge conflicts for now
-error_code("XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable", 999)
+error_code("XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable", 999)

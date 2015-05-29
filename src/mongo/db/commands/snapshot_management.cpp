@@ -71,9 +71,9 @@ namespace mongo {
         }
     };
     
-    class CmdSetMajorityCommittedSnapshot final : public Command {
+    class CmdSetCommittedSnapshot final : public Command {
     public:
-        CmdSetMajorityCommittedSnapshot(): Command("setMajorityCommittedSnapshot") {}
+        CmdSetCommittedSnapshot(): Command("setCommittedSnapshot") {}
 
         virtual bool slaveOk() const { return true; }
         virtual bool isWriteCommandForConfigServer() const { return false; }
@@ -98,7 +98,7 @@ namespace mongo {
 
             ScopedTransaction st(txn, MODE_IS);
             auto name = SnapshotName(cmdObj.firstElement().timestamp());
-            snapshotManager->setMajorityCommittedSnapshot(name);
+            snapshotManager->setCommittedSnapshot(name);
             return true;
         }
     };
@@ -107,7 +107,7 @@ namespace mongo {
         if (Command::testCommandsEnabled) {
             // Leaked intentionally: a Command registers itself when constructed.
             new CmdMakeSnapshot();
-            new CmdSetMajorityCommittedSnapshot();
+            new CmdSetCommittedSnapshot();
         }
         return Status::OK();
     }

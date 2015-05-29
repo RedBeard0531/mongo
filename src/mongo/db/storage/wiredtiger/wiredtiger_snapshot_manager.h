@@ -42,39 +42,32 @@ namespace mongo {
     class WiredTigerSnapshotManager final : public SnapshotManager {
         MONGO_DISALLOW_COPYING(WiredTigerSnapshotManager);
     public:
-        Status prepareForSnapshot(OperationContext* opCtx) final;
-        Status createSnapshot(OperationContext* ru, const SnapshotName& name) final;
-        void setMajorityCommittedSnapshot(const SnapshotName& name) final;
-        void dropAllSnapshots() final;
-
-        //
-        // WT-specific methods
-        //
-
         WiredTigerSnapshotManager(WT_CONNECTION* conn) {
             invariantWTOK(conn->open_session(conn, NULL, NULL, &_session));
         }
 
         ~WiredTigerSnapshotManager() { shutdown(); }
 
+        Status prepareForSnapshot(OperationContext* txn) final;
+        Status createSnapshot(OperationContext* ru, const SnapshotName& name) final;
+        void setCommittedSnapshot(const SnapshotName& name) final;
+        void dropAllSnapshots() final;
+
+        //
+        // WT-specific methods
+        //
+
         /**
          * Prepares for a shutdown of the WT_CONNECTION.
          */
         void shutdown();
 
-        /**
-         * Once it becomes true, will never return false again.
-         */
-        bool haveMajorityCommittedSnapshot() const;
-
-        /**
-         * Illegal to call if !haveMajorityCommittedSnapshot.
-         */
-        Status beginTransactionOnMajorityCommittedSnapshot(WT_SESSION* session, bool sync) const;
+        bool haveCommittedSnapshot() const;
+        void beginTransactionOnCommittedSnapshot(WT_SESSION* session, bool sync) const;
 
     private:
         mutable boost::mutex _mutex; // Guards all members.
-        boost::optional<SnapshotName> _committed;
+        boost::optional<SnapshotName> _committedSnapshot;
         WT_SESSION* _session;
     };
 

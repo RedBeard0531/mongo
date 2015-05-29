@@ -562,18 +562,8 @@ namespace {
                                                               const char* data,
                                                               int len,
                                                               bool enforceQuota ) {
-        if (_isCapped) {
-            if (len > _cappedMaxSize ) {
-                return {ErrorCodes::BadValue, "object to insert exceeds cappedMaxSize"};
-            }
-
-            if (!NamespaceString(ns()).isSystemDotProfile()) {
-                // Taking in MODE_IX which will be held until the end of our WUOW. This ensures that
-                // a MODE_X lock on this resource will wait for all in-flight capped inserts to
-                // either commit or rollback and block new ones from starting.
-                // TODO see if it is nessesary to do something else for the oplog.
-                Lock::ResourceLock{txn->lockState(), kCappedInsertResource, MODE_IX};
-            }
+        if (_isCapped && len > _cappedMaxSize) {
+            return {ErrorCodes::BadValue, "object to insert exceeds cappedMaxSize"};
         }
 
         RecordId loc;
@@ -590,6 +580,12 @@ namespace {
             }
         }
         else if ( _isCapped ) {
+            if (!NamespaceString(ns()).isSystemDotProfile()) {
+                // Taking in MODE_IX which will be held until the end of our WUOW. This ensures that
+                // a MODE_X lock on this resource will wait for all in-flight capped inserts to
+                // either commit or rollback and block new ones from starting.
+                Lock::ResourceLock{txn->lockState(), kCappedInsertResource, MODE_IX};
+            }
             boost::lock_guard<boost::mutex> lk( _uncommittedDiskLocsMutex );
             loc = _nextId();
             _addUncommitedDiskLoc_inlock( txn, loc );
@@ -890,6 +886,11 @@ namespace {
         StatusWith<RecordId> loc = oploghack::keyForOptime( opTime );
         if ( !loc.isOK() )
             return loc.getStatus();
+
+        // Taking in MODE_IX which will be held until the end of our WUOW. This ensures that
+        // a MODE_X lock on this resource will wait for all in-flight capped inserts to
+        // either commit or rollback and block new ones from starting.
+        Lock::ResourceLock{txn->lockState(), kCappedInsertResource, MODE_IX};
 
         boost::lock_guard<boost::mutex> lk( _uncommittedDiskLocsMutex );
         _addUncommitedDiskLoc_inlock( txn, loc.getValue() );

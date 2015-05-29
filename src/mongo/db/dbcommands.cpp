@@ -1259,6 +1259,8 @@ namespace {
 
             Status status = txn->recoveryUnit()->setReadFromMajorityCommittedSnapshot();
             if (!status.isOK()) {
+                // TODO if code is XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable, block until a
+                // committed snapshot is available.
                 replyBuilder
                     ->setMetadata(rpc::metadata::empty())
                     .setCommandReply(status);

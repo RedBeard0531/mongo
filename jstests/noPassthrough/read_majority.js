@@ -11,13 +11,13 @@ var t = db.readMajority;
 
 var errorCodes = {
     CommandNotSupported: 115,
-    XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable: 999,
+    XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable: 999,
 }
 
 function assertNoReadMajoritySnapshotAvailable() {
     var res = t.runCommand('find', {batchSize: 2, $readMajorityTemporaryName: true});
     assert.commandFailed(res);
-    assert.eq(res.code, errorCodes.XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable);
+    assert.eq(res.code, errorCodes.XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable);
 }
 
 function getReadMajorityCursor() {
@@ -64,18 +64,18 @@ assertNoReadMajoritySnapshotAvailable();
 assert.writeOK(t.update({}, {$set: {version: Timestamp(3, 0)}}, false, true));
 assert.commandWorked(db.adminCommand({"makeSnapshot": Timestamp(3, 0)}));
 
-assert.commandWorked(db.adminCommand({"setMajorityCommittedSnapshot": Timestamp(1, 0)}));
+assert.commandWorked(db.adminCommand({"setCommittedSnapshot": Timestamp(1, 0)}));
 
 // Note: collection didn't exist in snapshot 0.
 assert.eq(getReadMajorityCursor().itcount(), 0);
     
-assert.commandWorked(db.adminCommand({"setMajorityCommittedSnapshot": Timestamp(2, 0)}));
+assert.commandWorked(db.adminCommand({"setCommittedSnapshot": Timestamp(2, 0)}));
 
 var cursor = getReadMajorityCursor();
 assert.eq(cursor.next().version, Timestamp(2, 0));
 assert.eq(cursor.next().version, Timestamp(2, 0));
 
-assert.commandWorked(db.adminCommand({"setMajorityCommittedSnapshot": Timestamp(3, 0)}));
+assert.commandWorked(db.adminCommand({"setCommittedSnapshot": Timestamp(3, 0)}));
 
 assert.eq(cursor.next().version, Timestamp(3, 0));
 assert.eq(cursor.next().version, Timestamp(3, 0));

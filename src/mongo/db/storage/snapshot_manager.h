@@ -50,6 +50,8 @@ namespace mongo {
          */
         uint64_t asU64() const { return _ts.asULL(); }
 
+        Timestamp timestamp() const { return _ts; }
+
         bool operator==(const SnapshotName& rhs) const { return _ts == rhs._ts; }
         bool operator!=(const SnapshotName& rhs) const { return _ts != rhs._ts; }
         bool operator< (const SnapshotName& rhs) const { return _ts <  rhs._ts; }
@@ -77,7 +79,7 @@ namespace mongo {
          * This must be the first method called after starting a ScopedTransaction, and it is
          * illegal to start a WriteUnitOfWork inside of the same ScopedTransaction.
          */
-        virtual Status prepareForSnapshot(OperationContext* opCtx) = 0;
+        virtual Status prepareForSnapshot(OperationContext* txn) = 0;
 
         /**
          * Creates a new named snapshot representing the same point-in-time captured in
@@ -87,16 +89,16 @@ namespace mongo {
          *
          * Caller guarantees that this name must compare greater than all existing snapshots.
          */
-        virtual Status createSnapshot(OperationContext* opCtx, const SnapshotName& name) = 0;
+        virtual Status createSnapshot(OperationContext* txn, const SnapshotName& name) = 0;
 
         /**
-         * Sets the snapshot to be used for Majority Committed reads. Once set, all older snapshots
-         * that are not currently in use by any RecoveryUnit can be deleted.
+         * Sets the snapshot to be used for committed reads. Once set, all older snapshots that are
+         * not currently in use by any RecoveryUnit can be deleted.
          *
          * Implementations are allowed to assume that all older snapshots have names that compare
          * less than the passed in name, and newer ones compare greater.
          */
-        virtual void setMajorityCommittedSnapshot(const SnapshotName& name) = 0;
+        virtual void setCommittedSnapshot(const SnapshotName& name) = 0;
 
         /**
          * Drops all snapshots and clears the "committed" snapshot.

@@ -95,6 +95,7 @@ namespace {
                                                            bgsync)));
         _syncSourceFeedbackThread.reset(new boost::thread(stdx::bind(&SyncSourceFeedback::run,
                                                                      &_syncSourceFeedback)));
+        startSnapshotThread();
         _startedThreads = true;
     }
 
@@ -112,6 +113,9 @@ namespace {
             BackgroundSync* bgsync = BackgroundSync::get();
             bgsync->shutdown();
             _producerThread->join();
+
+            if (_stopSnapshotThread)
+                _stopSnapshotThread();
         }
     }
 
@@ -337,5 +341,35 @@ namespace {
         }
     }
 
+    void ReplicationCoordinatorExternalStateImpl::startSnapshotThread() {
+        auto onSnapshotCreate = [this](SnapshotName name) {
+            stdx::lock_guard<stdx::mutex> lock(_snapshotsMutex);
+            dassert(_snapshots.empty() || name > *_snapshots.rbegin());
+            _snapshots.insert(name);
+        };
+
+        _stopSnapshotThread = startStorageSnapshotThread(std::move(onSnapshotCreate));
+    }
+
+    boost::optional<Timestamp> ReplicationCoordinatorExternalStateImpl::updateCommittedSnapshot(
+            OpTime newCommitPoint) {
+        stdx::lock_guard<stdx::mutex> lock(_snapshotsMutex);
+        if (_snapshots.empty()) return {};
+
+        // Seek to the first entry > the commit point and go back one to land <=.
+        auto it = _snapshots.upper_bound(SnapshotName(newCommitPoint.getTimestamp()));
+        if (it == _snapshots.begin()) return {}; // Nothing available is <=.
+        --it;
+
+        auto manager = getGlobalServiceContext()->getGlobalStorageEngine()->getSnapshotManager();
+        invariant(manager); // If there is no manager, _snapshots would be empty.
+        auto newSnapshot = *it;
+        manager->setCommittedSnapshot(newSnapshot);
+
+        // Forget about all snapshots <= the new commit point.
+        _snapshots.erase(_snapshots.begin(), ++it);
+
+        return {newSnapshot.timestamp()};
+    }
 } // namespace repl
 } // namespace mongo

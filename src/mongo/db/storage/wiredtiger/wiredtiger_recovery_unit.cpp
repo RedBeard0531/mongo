@@ -338,9 +338,9 @@ namespace mongo {
     }
 
     Status WiredTigerRecoveryUnit::setReadFromMajorityCommittedSnapshot() {
-        if (!_sessionCache->snapshotManager().haveMajorityCommittedSnapshot()) {
-            return {ErrorCodes::XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable,
-                    "XXX_TEMP_NAME_NoReadMajoritySnapshotAvailable message"};
+        if (!_sessionCache->snapshotManager().haveCommittedSnapshot()) {
+            return {ErrorCodes::XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable,
+                    "XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable message"};
         }
 
         _readFromMajorityCommittedSnapshot = true;
@@ -387,9 +387,7 @@ namespace mongo {
         _syncing = _syncing || waitUntilDurableData.numWaitingForSync.load() > 0;
 
         if (_readFromMajorityCommittedSnapshot) {
-            _sessionCache->snapshotManager().beginTransactionOnMajorityCommittedSnapshot(this,
-                                                                                         s,
-                                                                                         _syncing);
+            _sessionCache->snapshotManager().beginTransactionOnCommittedSnapshot(s, _syncing);
         }
         else {
             invariantWTOK( s->begin_transaction(s, _syncing ? "sync=true" : NULL) );

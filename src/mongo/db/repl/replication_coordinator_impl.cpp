@@ -2526,7 +2526,15 @@ namespace {
         std::sort(votingNodesOpTimes.begin(), votingNodesOpTimes.end());
 
         // Use the index of the minimum quorum in the vector of nodes.
-        _lastCommittedOpTime = votingNodesOpTimes[(votingNodesOpTimes.size() - 1) / 2];
+        auto newCommittedOpTime = votingNodesOpTimes[(votingNodesOpTimes.size() - 1) / 2];
+        if (newCommittedOpTime != _lastCommittedOpTime) {
+            _lastCommittedOpTime = newCommittedOpTime;
+            if (auto newSnapshotTs = _externalState->updateCommittedSnapshot(newCommittedOpTime)) {
+                // TODO use this Timestamp to make w:majority writes block until they are in the
+                // committed snapshot. This should also be used to make readCommitted + afterOptime
+                // block until the optime is in the committed view.
+            }
+        }
     }
 
     OpTime ReplicationCoordinatorImpl::getLastCommittedOpTime() const {

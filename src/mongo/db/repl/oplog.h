@@ -30,11 +30,13 @@
 
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <string>
 
-#include "mongo/base/status.h"
 #include "mongo/base/disallow_copying.h"
+#include "mongo/base/status.h"
 #include "mongo/db/repl/optime.h"
+#include "mongo/db/storage/snapshot_manager.h"
 #include "mongo/util/concurrency/mutex.h"
 #include "mongo/util/time_support.h"
 
@@ -134,5 +136,14 @@ namespace repl {
      * Detects the current replication mode and sets the "_oplogCollectionName" accordingly.
      */
     void setOplogCollectionName();
+
+    /**
+     * Starts a thread to take periodic snapshots if supported by the storageEngine.
+     *
+     * If a thread is started, a function that will stop and join the thread is returned.
+     * If a callback is passed in, it will be called every time a snapshot is created.
+     */
+    std::function<void()> startStorageSnapshotThread(
+        std::function<void(SnapshotName)> onSnapshotCreate);
 } // namespace repl
 } // namespace mongo

@@ -34,6 +34,7 @@
 
 #include "mongo/db/repl/oplog.h"
 
+#include <boost/smart_ptr/make_shared.hpp>
 #include <deque>
 #include <set>
 #include <vector>
@@ -78,6 +79,7 @@
 #include "mongo/db/storage_options.h"
 #include "mongo/s/d_state.h"
 #include "mongo/scripting/engine.h"
+#include "mongo/stdx/thread.h"
 #include "mongo/util/elapsed_tracker.h"
 #include "mongo/util/file.h"
 #include "mongo/util/log.h"
@@ -904,6 +906,80 @@ namespace {
 
         _localDB = nullptr;
         _localOplogCollection = nullptr;
+    }
+
+    std::function<void()> startStorageSnapshotThread(std::function<void(SnapshotName)> onCreate) {
+        auto manager = getGlobalServiceContext()->getGlobalStorageEngine()->getSnapshotManager();
+        if (!manager)
+            return {};
+
+        struct State {
+            bool keepGoing = true; // guarded by newOpMutex.
+            stdx::thread thread;
+        };
+        auto state = boost::make_shared<State>();
+
+        state->thread = stdx::thread([state, manager, onCreate]() {
+            Client::initThread("StorageSnapshotThread");
+            Timestamp lastTimestamp = {};
+            Timestamp lastSnapshot = {}; // May differ from lastTimestamp if it rolled back.
+            while (true) {
+                {
+                    stdx::unique_lock<stdx::mutex> lock(newOpMutex);
+                    while (true) {
+                        if (!state->keepGoing)
+                            return;
+
+                        if (lastTimestamp != getLastSetTimestamp()) {
+                            lastTimestamp = getLastSetTimestamp();
+                            break;
+                        }
+
+                        newTimestampNotifier.wait(lock);
+                    }
+                }
+
+                try {
+                    OperationContextImpl txn;
+                    manager->prepareForSnapshot(&txn);
+
+                    // TODO could we deadlock on shutdown here?
+                    AutoGetCollectionForRead oplog(&txn, rsOplogName);
+                    invariant(oplog.getCollection());
+                    std::unique_ptr<RecordIterator> it(
+                        oplog.getCollection()->getIterator(&txn, RecordId(),
+                                                           CollectionScanParams::BACKWARD));
+                    if (it->isEOF())
+                        continue;
+
+                    const auto op = it->dataFor(it->curr()).releaseToBson();
+                    const auto ts = op["ts"].timestamp();
+                    invariant(!ts.isNull());
+                    if (ts == lastSnapshot)
+                        continue;
+
+                    manager->createSnapshot(&txn, SnapshotName(ts));
+                    lastSnapshot = ts;
+                }
+                catch (const WriteConflictException& wce) {
+                    warning() << "skipping storage snapshot pass due to write conflict";
+                    continue;
+                }
+
+                // Called outside of any locks.
+                onCreate(SnapshotName(lastSnapshot));
+            }
+        });
+
+        return [state]() {
+            invariant(state->thread.joinable());
+            {
+                stdx::lock_guard<stdx::mutex> lock(newOpMutex);
+                state->keepGoing = false;
+                newTimestampNotifier.notify_all();
+            }
+            state->thread.join();
+        };
     }
 
 } // namespace repl

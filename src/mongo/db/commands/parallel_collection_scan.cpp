@@ -153,12 +153,14 @@ namespace mongo {
 
                     if (cmdObj["$readMajorityTemporaryName"].trueValue()) {
                         // Need to make RecoveryUnits for each cursor so that the getMores know to
-                        // use readMajority.
+                        // use readMajority. This will need to be replaced with a setting on the
+                        // client cursor once we resolve SERVER-17364.
                         StorageEngine* storageEngine = getGlobalServiceContext()
                                                              ->getGlobalStorageEngine();
                         std::unique_ptr<RecoveryUnit> newRu(storageEngine->newRecoveryUnit());
                         // Wouldn't have entered run() if not supported.
                         invariantOK(newRu->setReadFromMajorityCommittedSnapshot());
+
                         cc->setOwnedRecoveryUnit(newRu.release());
                     }
 

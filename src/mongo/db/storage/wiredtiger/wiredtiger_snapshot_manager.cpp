@@ -34,6 +34,7 @@
 #include <boost/thread/locks.hpp>
 
 #include "mongo/base/checked_cast.h"
+#include "mongo/db/storage/wiredtiger/wiredtiger_record_store.h"
 #include "mongo/db/storage/wiredtiger/wiredtiger_recovery_unit.h"
 #include "mongo/db/storage/wiredtiger/wiredtiger_session_cache.h"
 #include "mongo/db/storage/wiredtiger/wiredtiger_snapshot_manager.h"
@@ -59,11 +60,11 @@ namespace mongo {
             return wtRCToStatus(session->snapshot(session, config.c_str()));
         }
 
-        void WiredTigerSnapshotManager::setMajorityCommittedSnapshot(const SnapshotName& name) {
+        void WiredTigerSnapshotManager::setCommittedSnapshot(const SnapshotName& name) {
             boost::lock_guard<boost::mutex> lock(_mutex);
 
-            invariant(!_committed || *_committed < name);
-            _committed = name;
+            invariant(!_committedSnapshot || *_committedSnapshot < name);
+            _committedSnapshot = name;
 
             const std::string config = str::stream() << "drop=(before=" << name.asU64() << ')';
             invariantWTOK(_session->snapshot(_session, config.c_str()));
@@ -71,7 +72,7 @@ namespace mongo {
 
         void WiredTigerSnapshotManager::dropAllSnapshots() {
             boost::lock_guard<boost::mutex> lock(_mutex);
-            _committed = {};
+            _committedSnapshot = {};
             invariantWTOK(_session->snapshot(_session, "drop=(all)"));
         }
 
@@ -82,20 +83,23 @@ namespace mongo {
             _session = nullptr;
         }
 
-        bool WiredTigerSnapshotManager::haveMajorityCommittedSnapshot() const {
+        bool WiredTigerSnapshotManager::haveCommittedSnapshot() const {
             boost::lock_guard<boost::mutex> lock(_mutex);
-            return bool(_committed);
+            return bool(_committedSnapshot);
         }
 
-        Status WiredTigerSnapshotManager::beginTransactionOnMajorityCommittedSnapshot(
+        void WiredTigerSnapshotManager::beginTransactionOnCommittedSnapshot(
                 WT_SESSION* session, bool sync) const {
             boost::lock_guard<boost::mutex> lock(_mutex);
 
-            invariant(_committed); // XXX this won't mix well with dropAllSnapshots()
+            uassert(ErrorCodes::XXX_TEMP_NAME_ReadCommittedCurrentlyUnavailable,
+                    "Committed view disappeared while running operation",
+                    _committedSnapshot);
+
             StringBuilder config;
-            config << "snapshot=" << _committed->asU64();
+            config << "snapshot=" << _committedSnapshot->asU64();
             if (sync) config << ",sync=true";
-            return wtRCToStatus(session->begin_transaction(session, config.str().c_str()));
+            invariantWTOK(session->begin_transaction(session, config.str().c_str()));
         }
 
 } // namespace mongo

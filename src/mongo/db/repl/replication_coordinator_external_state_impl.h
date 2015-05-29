@@ -30,11 +30,14 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
+#include <functional>
 
 #include "mongo/base/disallow_copying.h"
 #include "mongo/db/concurrency/d_concurrency.h"
+#include "mongo/db/storage/snapshot_manager.h"
 #include "mongo/db/repl/replication_coordinator_external_state.h"
 #include "mongo/db/repl/sync_source_feedback.h"
+#include "mongo/stdx/mutex.h"
 
 namespace mongo {
 namespace repl {
@@ -65,10 +68,13 @@ namespace repl {
         virtual void signalApplierToChooseNewSyncSource();
         virtual OperationContext* createOperationContext(const std::string& threadName);
         virtual void dropAllTempCollections(OperationContext* txn);
+        boost::optional<Timestamp> updateCommittedSnapshot(OpTime newCommitPoint) final;
 
         std::string getNextOpContextThreadName();
 
     private:
+        void startSnapshotThread();
+
         // Guards starting threads and setting _startedThreads
         boost::mutex _threadMutex;
 
@@ -93,6 +99,11 @@ namespace repl {
         boost::mutex _nextThreadIdMutex;
         // Number used to uniquely name threads.
         long long _nextThreadId;
+
+        std::function<void()> _stopSnapshotThread;
+
+        stdx::mutex _snapshotsMutex; // guards _snapshots.
+        std::set<SnapshotName> _snapshots;
     };
 
 } // namespace repl
