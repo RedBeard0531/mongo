@@ -35,7 +35,9 @@
 #include "mongo/db/stats/counters.h"
 #include "mongo/transport/asio_utils.h"
 #include "mongo/transport/transport_layer_asio.h"
+#include "mongo/util/future.h"
 #include "mongo/util/net/sock.h"
+
 #ifdef MONGO_CONFIG_SSL
 #include "mongo/util/net/ssl_manager.h"
 #include "mongo/util/net/ssl_types.h"
@@ -48,6 +50,15 @@
 
 namespace mongo {
 namespace transport {
+
+template <typename SuccessValue>
+auto futurize(const std::error_code& ec, SuccessValue&& successValue) {
+    using Result = Future<std::decay_t<SuccessValue>>;
+    if (MONGO_unlikely(ec)) {
+        return Result::makeReady(errorCodeToStatus(ec));
+    }
+    return Result::makeReady(successValue);
+}
 
 using GenericSocket = asio::generic::stream_protocol::socket;
 
@@ -102,63 +113,34 @@ public:
 
     StatusWith<Message> sourceMessage() override {
         ensureSync();
-        auto out = StatusWith<Message>(ErrorCodes::InternalError, "uninitialized...");
-        bool called = false;
-        sourceMessageImpl(true, [&](StatusWith<Message> in) {
-            out = std::move(in);
-            called = true;
-        });
-        invariant(called);
-        return out;
+        return sourceMessageImpl(true).getNoThrow();
     }
 
     void asyncSourceMessage(std::function<void(StatusWith<Message>)> cb) override {
         ensureAsync();
-        sourceMessageImpl(false, std::move(cb));
+        sourceMessageImpl(false).getAsync(std::move(cb));
     }
 
     Status sinkMessage(Message message) override {
         ensureSync();
-
-        std::error_code ec;
-        size_t size;
-        bool called = false;
-
-        write(true,
-              asio::buffer(message.buf(), message.size()),
-              [&](const std::error_code& ec_, size_t size_) {
-                  ec = ec_;
-                  size = size_;
-                  called = true;
-              });
-        invariant(called);
-
-        if (ec)
-            return errorCodeToStatus(ec);
-
-        invariant(size == size_t(message.size()));
-        networkCounter.hitPhysicalOut(message.size());
-        return Status::OK();
+        return write(true, asio::buffer(message.buf(), message.size()))
+            .then([&message](size_t size) {
+                invariant(size == size_t(message.size()));
+                networkCounter.hitPhysicalOut(message.size());
+            })
+            .getNoThrow();
     }
 
     void asyncSinkMessage(Message message, std::function<void(Status)> cb) override {
         ensureAsync();
 
-        write(false, asio::buffer(message.buf(), message.size()), [
-            message,  // keep the buffer alive.
-            cb = std::move(cb),
-            this
-        ](const std::error_code& ec, size_t size) {
-            if (ec) {
-                cb(errorCodeToStatus(ec));
-                return;
-            }
-            invariant(size == size_t(message.size()));
-            networkCounter.hitPhysicalOut(message.size());
-            cb(Status::OK());
-        });
+        write(false, asio::buffer(message.buf(), message.size()))
+            .then([message /* keep the buffer alive.*/](size_t size) {
+                invariant(size == size_t(message.size()));
+                networkCounter.hitPhysicalOut(message.size());
+            })
+            .getAsync(std::move(cb));
     };
-
 
 private:
     GenericSocket& getSocket() {
@@ -178,20 +160,12 @@ private:
 #endif
     }
 
-    template <typename Callback>
-    void sourceMessageImpl(bool sync, Callback&& cb) {
+    Future<Message> sourceMessageImpl(bool sync) {
         static constexpr auto kHeaderSize = sizeof(MSGHEADER::Value);
-
         auto headerBuffer = SharedBuffer::allocate(kHeaderSize);
         auto ptr = headerBuffer.get();
-        read(
-            sync,
-            asio::buffer(ptr, kHeaderSize),
-            [ sync, cb = std::forward<Callback>(cb), headerBuffer = std::move(headerBuffer), this ](
-                const std::error_code& ec, size_t size) mutable {
-
-                if (ec)
-                    return cb(errorCodeToStatus(ec));
+        return read(sync, asio::buffer(ptr, kHeaderSize))
+            .then([ sync, headerBuffer = std::move(headerBuffer), this ](size_t size) mutable {
                 invariant(size == kHeaderSize);
 
                 const auto msgLen = size_t(MSGHEADER::View(headerBuffer.get()).getMessageLength());
@@ -202,81 +176,59 @@ private:
                     const auto str = sb.str();
                     LOG(0) << str;
 
-                    return cb(Status(ErrorCodes::ProtocolError, str));
+                    uasserted(ErrorCodes::ProtocolError, str);
                 }
 
                 if (msgLen == size) {
                     // This probably isn't a real case since all (current) messages have bodies.
                     networkCounter.hitPhysicalIn(msgLen);
-                    return cb(Message(std::move(headerBuffer)));
+                    return Future<Message>::makeReady(Message(std::move(headerBuffer)));
                 }
 
                 auto buffer = SharedBuffer::allocate(msgLen);
                 memcpy(buffer.get(), headerBuffer.get(), kHeaderSize);
 
                 MsgData::View msgView(buffer.get());
-                read(sync,
-                     asio::buffer(msgView.data(), msgView.dataLen()),
-                     [ cb = std::move(cb), buffer = std::move(buffer), msgLen, this ](
-                         const std::error_code& ec, size_t size) mutable {
-                         if (ec)
-                             return cb(errorCodeToStatus(ec));
-                         networkCounter.hitPhysicalIn(msgLen);
-                         return cb(Message(std::move(buffer)));
-                     });
+                return read(sync, asio::buffer(msgView.data(), msgView.dataLen()))
+                    .then([ buffer = std::move(buffer), msgLen ](size_t size) mutable {
+                        networkCounter.hitPhysicalIn(msgLen);
+                        return Message(std::move(buffer));
+                    });
             });
     }
 
-
-    template <typename MutableBufferSequence, typename CompleteHandler>
-    void read(bool sync, const MutableBufferSequence& buffers, CompleteHandler&& handler) {
+    template <typename MutableBufferSequence>
+    Future<size_t> read(bool sync, const MutableBufferSequence& buffers) {
 #ifdef MONGO_CONFIG_SSL
         if (_sslSocket) {
-            return opportunisticRead(
-                sync, *_sslSocket, buffers, std::forward<CompleteHandler>(handler));
+            return opportunisticRead(sync, *_sslSocket, buffers);
         } else if (!_ranHandshake) {
             invariant(asio::buffer_size(buffers) >= sizeof(MSGHEADER::Value));
-            auto postHandshakeCb = [this, sync, buffers, handler](Status status,
-                                                                  bool needsRead) mutable {
-                if (status.isOK()) {
+            return opportunisticRead(sync, _socket, buffers)
+                .then([this, sync, buffers](size_t size) {
+                    _ranHandshake = true;
+                    return maybeHandshakeSSL(sync, buffers);
+                })
+                .then([this, sync, buffers](bool needsRead) {
                     if (needsRead) {
-                        read(sync, buffers, handler);
+                        return read(sync, buffers);
                     } else {
-                        std::error_code ec;
-                        handler(ec, asio::buffer_size(buffers));
+                        return Future<size_t>::makeReady(asio::buffer_size(buffers));
                     }
-                } else {
-                    handler(std::error_code(status.code(), mongoErrorCategory()), 0);
-                }
-            };
-
-            auto handshakeRecvCb =
-                [ this, postHandshakeCb = std::move(postHandshakeCb), sync, buffers ](
-                    const std::error_code& ec, size_t size) mutable {
-                _ranHandshake = true;
-                if (ec) {
-                    postHandshakeCb(errorCodeToStatus(ec), size);
-                    return;
-                }
-
-                maybeHandshakeSSL(sync, buffers, std::move(postHandshakeCb));
-            };
-
-            return opportunisticRead(sync, _socket, buffers, std::move(handshakeRecvCb));
+                });
         }
 #endif
-        return opportunisticRead(sync, _socket, buffers, std::forward<CompleteHandler>(handler));
+        return opportunisticRead(sync, _socket, buffers);
     }
 
-    template <typename ConstBufferSequence, typename CompleteHandler>
-    void write(bool sync, const ConstBufferSequence& buffers, CompleteHandler&& handler) {
+    template <typename ConstBufferSequence>
+    Future<size_t> write(bool sync, const ConstBufferSequence& buffers) {
 #ifdef MONGO_CONFIG_SSL
         if (_sslSocket) {
-            return opportunisticWrite(
-                sync, *_sslSocket, buffers, std::forward<CompleteHandler>(handler));
+            return opportunisticWrite(sync, *_sslSocket, buffers);
         }
 #endif
-        return opportunisticWrite(sync, _socket, buffers, std::forward<CompleteHandler>(handler));
+        return opportunisticWrite(sync, _socket, buffers);
     }
 
     void ensureSync() {
@@ -297,14 +249,13 @@ private:
         _blockingMode = Async;
     }
 
-    template <typename Stream, typename MutableBufferSequence, typename CompleteHandler>
-    void opportunisticRead(bool sync,
-                           Stream& stream,
-                           const MutableBufferSequence& buffers,
-                           CompleteHandler&& handler) {
+    template <typename Stream, typename MutableBufferSequence>
+    Future<size_t> opportunisticRead(bool sync,
+                                     Stream& stream,
+                                     const MutableBufferSequence& buffers) {
         std::error_code ec;
         auto size = asio::read(stream, buffers, ec);
-        if ((ec == asio::error::would_block || ec == asio::error::try_again) && !sync) {
+        if (!sync && (ec == asio::error::would_block || ec == asio::error::try_again)) {
             // asio::read is a loop internally, so some of buffers may have been read into already.
             // So we need to adjust the buffers passed into async_read to be offset by size, if
             // size is > 0.
@@ -312,26 +263,22 @@ private:
             if (size > 0) {
                 asyncBuffers += size;
             }
-            asio::async_read(stream,
-                             asyncBuffers,
-                             [ size, handler = std::forward<CompleteHandler>(handler) ](
-                                 const std::error_code& ec, size_t asyncSize) mutable {
-                                 // Add back in the size read opportunistically.
-                                 handler(ec, size + asyncSize);
-                             });
-        } else {
-            handler(ec, size);
+            return asio::async_read(stream, asyncBuffers, UseFuture{})
+                .then([size](size_t asyncSize) {
+                    // Add back in the size read opportunistically.
+                    return size + asyncSize;
+                });
         }
+        return futurize(ec, size);
     }
 
-    template <typename Stream, typename ConstBufferSequence, typename CompleteHandler>
-    void opportunisticWrite(bool sync,
-                            Stream& stream,
-                            const ConstBufferSequence& buffers,
-                            CompleteHandler&& handler) {
+    template <typename Stream, typename ConstBufferSequence>
+    Future<size_t> opportunisticWrite(bool sync,
+                                      Stream& stream,
+                                      const ConstBufferSequence& buffers) {
         std::error_code ec;
         auto size = asio::write(stream, buffers, ec);
-        if ((ec == asio::error::would_block || ec == asio::error::try_again) && !sync) {
+        if (!sync && (ec == asio::error::would_block || ec == asio::error::try_again)) {
             // asio::write is a loop internally, so some of buffers may have been read into already.
             // So we need to adjust the buffers passed into async_write to be offset by size, if
             // size is > 0.
@@ -339,21 +286,18 @@ private:
             if (size > 0) {
                 asyncBuffers += size;
             }
-            asio::async_write(stream,
-                              asyncBuffers,
-                              [ size, handler = std::forward<CompleteHandler>(handler) ](
-                                  const std::error_code& ec, size_t asyncSize) mutable {
-                                  // Add back in the size written opportunistically.
-                                  handler(ec, size + asyncSize);
-                              });
-        } else {
-            handler(ec, size);
+            return asio::async_write(stream, asyncBuffers, UseFuture{})
+                .then([size](size_t asyncSize) {
+                    // Add back in the size written opportunistically.
+                    return size + asyncSize;
+                });
         }
+        return futurize(ec, size);
     }
 
 #ifdef MONGO_CONFIG_SSL
-    template <typename MutableBufferSequence, typename HandshakeCb>
-    void maybeHandshakeSSL(bool sync, const MutableBufferSequence& buffer, HandshakeCb onComplete) {
+    template <typename MutableBufferSequence>
+    Future<bool> maybeHandshakeSSL(bool sync, const MutableBufferSequence& buffer) {
         invariant(asio::buffer_size(buffer) >= sizeof(MSGHEADER::Value));
         MSGHEADER::ConstView headerView(asio::buffer_cast<char*>(buffer));
         auto responseTo = headerView.getResponseToMsgId();
@@ -366,66 +310,58 @@ private:
         // protocol message needs to be 0 or -1. Otherwise the connection is either sending
         // garbage or a TLS Hello packet which will be caught by the TLS handshake.
         if (responseTo != 0 && responseTo != -1) {
-            if (!_tl->_sslContext) {
-                return onComplete(
-                    {ErrorCodes::SSLHandshakeFailed,
-                     "SSL handshake received but server is started without SSL support"},
-                    false);
-            }
+            uassert(ErrorCodes::SSLHandshakeFailed,
+                    "SSL handshake received but server is started without SSL support",
+                    _tl->_sslContext);
 
             _sslSocket.emplace(std::move(_socket), *_tl->_sslContext);
 
-            auto handshakeCompleteCb = [ this, onComplete = std::move(onComplete) ](
-                const std::error_code& ec, size_t size) mutable {
-                auto& sslPeerInfo = SSLPeerInfo::forSession(shared_from_this());
+            auto doHandshake = [&] {
+                if (sync) {
+                    std::error_code ec;
+                    _sslSocket->handshake(asio::ssl::stream_base::server, buffer, ec);
+                    return futurize(ec, asio::buffer_size(buffer));
+                } else {
+                    return _sslSocket->async_handshake(
+                        asio::ssl::stream_base::server, buffer, UseFuture{});
+                }
+            };
 
-                if (!ec && sslPeerInfo.subjectName.empty()) {
+            return doHandshake().then([this](size_t size) {
+                auto& sslPeerInfo = SSLPeerInfo::forSession(shared_from_this());
+                if (sslPeerInfo.subjectName.empty()) {
                     auto sslManager = getSSLManager();
                     auto swPeerInfo = sslManager->parseAndValidatePeerCertificate(
                         _sslSocket->native_handle(), "");
 
-                    if (swPeerInfo.isOK()) {
-                        // The value of swPeerInfo is a bit complicated:
-                        //
-                        // If !swPeerInfo.isOK(), then there was an error doing the SSL
-                        // handshake and we should reject the connection.
-                        //
-                        // If !sslPeerInfo.getValue(), then the SSL handshake was successful,
-                        // but the peer didn't provide a SSL certificate, and we do not require
-                        // one. sslPeerInfo should be empty.
-                        //
-                        // Otherwise the SSL handshake was successful and the peer did provide
-                        // a certificate that is valid, and we should store that info on the
-                        // session's SSLPeerInfo decoration.
-                        if (swPeerInfo.getValue()) {
-                            sslPeerInfo = *swPeerInfo.getValue();
-                        }
-                    } else {
-                        return onComplete(swPeerInfo.getStatus(), false);
+                    // The value of swPeerInfo is a bit complicated:
+                    //
+                    // If !swPeerInfo.isOK(), then there was an error doing the SSL
+                    // handshake and we should reject the connection.
+                    //
+                    // If !sslPeerInfo.getValue(), then the SSL handshake was successful,
+                    // but the peer didn't provide a SSL certificate, and we do not require
+                    // one. sslPeerInfo should be empty.
+                    //
+                    // Otherwise the SSL handshake was successful and the peer did provide
+                    // a certificate that is valid, and we should store that info on the
+                    // session's SSLPeerInfo decoration.
+                    if (auto optPeerInfo = uassertStatusOK(std::move(swPeerInfo))) {
+                        sslPeerInfo = std::move(*optPeerInfo);
                     }
                 }
-
-                onComplete(ec ? errorCodeToStatus(ec) : Status::OK(), true);
-            };
-
-            if (sync) {
-                std::error_code ec;
-                _sslSocket->handshake(asio::ssl::stream_base::server, buffer, ec);
-                handshakeCompleteCb(ec, asio::buffer_size(buffer));
-            } else {
-                return _sslSocket->async_handshake(
-                    asio::ssl::stream_base::server, buffer, handshakeCompleteCb);
-            }
-        } else if (_tl->_sslMode() == SSLParams::SSLMode_requireSSL) {
-            onComplete({ErrorCodes::SSLHandshakeFailed,
-                        "The server is configured to only allow SSL connections"},
-                       false);
+                return true;
+            });
         } else {
+            uassert(ErrorCodes::SSLHandshakeFailed,
+                    "The server is configured to only allow SSL connections",
+                    _tl->_sslMode() != SSLParams::SSLMode_requireSSL);
+
             if (_tl->_sslMode() == SSLParams::SSLMode_preferSSL) {
                 LOG(0) << "SSL mode is set to 'preferred' and connection " << id() << " to "
                        << remote() << " is not using SSL.";
             }
-            onComplete(Status::OK(), false);
+            return Future<bool>::makeReady(false);
         }
     }
 #endif
