@@ -332,13 +332,14 @@ TEST(Future, Fail_onErrorSimple) {
                   3);
     });
 }
+
 TEST(Future, Fail_onErrorError_throw) {
     FUTURE_FAIL_TEST(int, [](Future<int>&& fut) {
         auto fut2 = std::move(fut).onError([](Status s) -> int {
             ASSERT_EQ(s, failStatus);
             uasserted(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -348,7 +349,7 @@ TEST(Future, Fail_onErrorError_StatusWith) {
             ASSERT_EQ(s, failStatus);
             return StatusWith<int>(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -625,7 +626,7 @@ TEST(Future_Void, Success_thenError_Status) {
     FUTURE_SUCCESS_TEST(void, , [](Future<void>&& fut) {
         auto fut2 = std::move(fut).then([]() { return Status(ErrorCodes::BadValue, "oh no!"); });
         MONGO_STATIC_ASSERT(std::is_same<decltype(fut2), Future<void>>::value);
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -634,7 +635,7 @@ TEST(Future_Void, Success_thenError_StatusWith) {
         auto fut2 = std::move(fut).then(
             []() { return StatusWith<double>(ErrorCodes::BadValue, "oh no!"); });
         MONGO_STATIC_ASSERT(std::is_same<decltype(fut2), Future<double>>::value);
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -726,7 +727,7 @@ TEST(Future_Void, Fail_onErrorError_throw) {
             ASSERT_EQ(s, failStatus);
             uasserted(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -736,7 +737,7 @@ TEST(Future_Void, Fail_onErrorError_Status) {
             ASSERT_EQ(s, failStatus);
             return Status(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -772,7 +773,7 @@ TEST(Future_Void, Fail_onErrorFutureReady) {
 TEST(Future_Void, Fail_onErrorFutureAsync) {
     FUTURE_FAIL_TEST(void, [](Future<void>&& fut) {
         ASSERT_EQ(std::move(fut)
-                      .onError([](Status s) {
+                      .onError([&](Status s) {
                           ASSERT_EQ(s, failStatus);
                           return async([] {});
                       })
@@ -907,8 +908,11 @@ TEST(Future_Void, Fail_tapAll_Overloaded) {
 struct Widget {
     explicit Widget(int val) : val(val) {}
 
-    Widget(Widget&&) = default;
-    Widget& operator=(Widget&&) = default;
+    Widget(Widget&& other) : Widget(other.val) {}
+    Widget& operator=(Widget&& other) {
+        val = other.val;
+        return *this;
+    }
 
     Widget() = delete;
     Widget(const Widget&) = delete;
@@ -1052,7 +1056,7 @@ TEST(Future_MoveOnly, Success_thenError_Status) {
         auto fut2 =
             std::move(fut).then([](Widget i) { return Status(ErrorCodes::BadValue, "oh no!"); });
         MONGO_STATIC_ASSERT(std::is_same<decltype(fut2), Future<void>>::value);
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -1061,7 +1065,7 @@ TEST(Future_MoveOnly, Success_thenError_StatusWith) {
         auto fut2 = std::move(fut).then(
             [](Widget i) { return StatusWith<double>(ErrorCodes::BadValue, "oh no!"); });
         MONGO_STATIC_ASSERT(std::is_same<decltype(fut2), Future<double>>::value);
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(fut2.getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -1091,7 +1095,7 @@ TEST(Future_MoveOnly, Success_thenFutureReady) {
 TEST(Future_MoveOnly, Success_thenFutureAsync) {
     FUTURE_SUCCESS_TEST(Widget, Widget(1), [](Future<Widget>&& fut) {
         ASSERT_EQ(std::move(fut)
-                      .then([](Widget i) { return async([i = i.val] { return Widget(i + 2); }); })
+                      .then([&](Widget i) { return async([i = i.val] { return Widget(i + 2); }); })
                       .get(),
                   3);
     });
@@ -1176,7 +1180,7 @@ TEST(Future_MoveOnly, Fail_onErrorError_throw) {
             ASSERT_EQ(s, failStatus);
             uasserted(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(std::move(fut2).getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -1186,7 +1190,7 @@ TEST(Future_MoveOnly, Fail_onErrorError_StatusWith) {
             ASSERT_EQ(s, failStatus);
             return StatusWith<Widget>(ErrorCodes::BadValue, "oh no!");
         });
-        ASSERT_THROWS(fut2.get(), ExceptionFor<ErrorCodes::BadValue>);
+        ASSERT_EQ(std::move(fut2).getNoThrow(), ErrorCodes::BadValue);
     });
 }
 
@@ -1220,7 +1224,7 @@ TEST(Future_MoveOnly, Fail_onErrorFutureReady) {
 TEST(Future_MoveOnly, Fail_onErrorFutureAsync) {
     FUTURE_FAIL_TEST(Widget, [](Future<Widget>&& fut) {
         ASSERT_EQ(std::move(fut)
-                      .onError([](Status s) {
+                      .onError([&](Status s) {
                           ASSERT_EQ(s, failStatus);
                           return async([] { return Widget(3); });
                       })
